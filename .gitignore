@@ -1,0 +1,10 @@
+node_modules/
+lib/
+.reference/
+*.tgz
+.DS_Store
+test/visual/visual-bundle.js
+test/visual/scene-3d-model.json
+test/visual/scene-3d-snowman.json
+.dsh-cad/
+.zcode/

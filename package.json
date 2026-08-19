@@ -1,0 +1,59 @@
+{
+  "name": "dsh-cad",
+  "description": "CAD visualization plugin for DeepSeek Harness: cad_view / cad_info tools with an embedded 3D (STL/OBJ/STEP/IGES) and 2D (DXF/SVG) viewer card in the Web UI",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "main": "lib/index.js",
+  "types": "lib/types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/types/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ],
+      "platform": "web"
+    }
+  },
+  "files": [
+    "lib",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && node esbuild.client.mjs && node -e \"const fs=require('fs'); fs.copyFileSync('src/convert/step-worker.mjs','lib/convert/step-worker.mjs'); fs.mkdirSync('lib/modeling',{recursive:true}); fs.copyFileSync('src/modeling/occt-adapter.cjs','lib/modeling/occt-adapter.cjs'); fs.copyFileSync('src/modeling/modeling-worker.cjs','lib/modeling/modeling-worker.cjs')\"",
+    "watch": "tsc -p tsconfig.json --watch & node esbuild.client.mjs --watch",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "dxf-parser": "^1.1.2",
+    "occt-import-js": "^0.0.23",
+    "opencascade.js": "^1.1.1",
+    "three": "^0.185.1"
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "^4.0.1-rc.1",
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "@deepseek-ai/dsh-tools": "^0.0.1-rc.1",
+    "@types/node": "^22.10.0",
+    "@types/react": "^18.3.1",
+    "esbuild": "^0.28.2",
+    "react": "^18.2.0",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.10"
+  }
+}
