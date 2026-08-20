@@ -27,45 +27,6 @@
 | ⚡ 直通渲染管道 | worker 网格 → 内存二进制 → three.js typed-array，零 base64 / 零中间文件 / 零每步落盘 |
 | 💾 建模文档持久化 | 操作日志（JSON）+ 防抖磁盘镜像，进程重启后自动重放恢复 |
 
-## 模型工具族
-
-| 工具 | 说明 |
-| --- | --- |
-| `cad_view` | 打开 CAD 文件，渲染交互式查看器卡片 |
-| `cad_info` | 只读几何元信息（格式/数量/包围盒/单位/图层） |
-| `cad_create_prim` | 基本体（mm，Z-up），`at` 定位、`axis` 定向（精确轴角旋转） |
-| `cad_extrude_profile` | XY 平面闭合多边形沿 +Z 拉伸成实体 |
-| `cad_boolean` | fuse / cut / common（经典打孔：plate cut cylinder） |
-| `cad_fillet` | 全锐边等半径圆角 |
-| `cad_transform` | 平移 / 欧拉旋转 / 镜像 |
-| `cad_volume` | 精确 BRep 体积（mm³） |
-| `cad_export` | 导出 STEP / STL 到工作区路径 |
-| `cad_delete` | 删除 body |
-
-每步建模后：**同一查看器卡片原地刷新**（稳定 viewId + 版本化 URL），
-"3D" 页签实时跟踪最新模型。
-
-## 架构
-
-```
-cad_view(path)                        建模工具（cad_create_prim 等）
-  → 导入 worker（occt-import-js）       → 建模 worker（opencascade.js WASM）
-  → CadScene JSON（base64-f32）         → BRep 精确几何 + 网格化
-  → GET /dsh-cad/scene/<id>            → 内存二进制场景（f32/u32 打包）
-                                        → GET /dsh-cad/bin/<docId>
-            ↓ 会话 presentationMeta（viewId + 版本化 URL）↓
-        浏览器卡片 + 常驻 "3D" 页签（three.js / SVG，Z-up，XYZ 轴）
-```
-
-- **两个 worker**：导入（occt-import-js，只读 STEP/IGES/BREP）与建模（opencascade.js 1.1.1，
-  完整 OCCT）分离，均惰性启动；embind 重载构造器的 `_N` 后缀约定封装在
-  `src/modeling/occt-adapter.cjs`（全部经运行时实证）
-- **直通管道**：建模场景零 base64 / 零 JSON 大数组 / 零每步落盘（磁盘镜像 1.5s 防抖，
-  仅服务重启回放）；`cad_export` 是唯一的显式文件导出
-- **建模文档**：`<workspace>/.dsh-cad/model.json` 操作日志，重启后重放恢复全部 body
-- **客户端**：esbuild 单文件 CJS 工厂（three.js 内联 ~560KB，react 由宿主模块表提供），
-  Z-up CAD 惯例，带 XYZ 轴标签与地面网格的空场景常驻显示
-
 ## 安装（开发模式）
 
 ```sh
@@ -92,6 +53,59 @@ dsh web
 - “画一个 100×60×5 的板，中间打 ⌀20 孔，四角 R2 圆角，加 ⌀16 高 20 凸台，导出 plate.step”
   → `cad_create_prim` + `cad_boolean` + `cad_fillet` + `cad_export`，每步 3D 页签实时更新
 - “堆一个雪人” → 球体 + 圆锥鼻子 + 圆柱帽子（`at`/`axis` 精确定位）
+
+## 模型工具族
+
+| 工具 | 说明 |
+| --- | --- |
+| `cad_view` | 打开 CAD 文件，渲染交互式查看器卡片 |
+| `cad_info` | 只读几何元信息（格式/数量/包围盒/单位/图层） |
+| `cad_create_prim` | 基本体（mm，Z-up），`at` 定位、`axis` 定向（精确轴角旋转） |
+| `cad_extrude_profile` | XY 平面闭合多边形沿 +Z 拉伸成实体 |
+| `cad_boolean` | fuse / cut / common（经典打孔：plate cut cylinder） |
+| `cad_fillet` | 全锐边等半径圆角 |
+| `cad_transform` | 平移 / 欧拉旋转 / 镜像 |
+| `cad_volume` | 精确 BRep 体积（mm³） |
+| `cad_export` | 导出 STEP / STL 到工作区路径 |
+| `cad_delete` | 删除 body |
+
+每步建模后：**同一查看器卡片原地刷新**（稳定 viewId + 版本化 URL），
+"3D" 页签实时跟踪最新模型。
+
+## 连接器（规划中）
+
+建模目前已由**内置的 WebGL 级建模器**承担（浏览器内的 OCCT 内核，零安装）；
+下表连接器指未来以**外部 CAD 引擎作为执行器**驱动同一工具族：
+
+| 连接器 | 套件 |
+| --- | --- |
+| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器 |
+| SolidWorks | 达索系统的主流 3D CAD |
+| Fusion 360 | Autodesk 云端 CAD/CAM |
+| Onshape | 云原生 SaaS CAD，完全在浏览器中 |
+| 中望3D（ZW3D） | 中望软件的一体化 CAD/CAM |
+| 浩辰3D | 浩辰软件的 3D CAD |
+
+## 架构
+
+```
+cad_view(path)                        建模工具（cad_create_prim 等）
+  → 导入 worker（occt-import-js）       → 建模 worker（opencascade.js WASM）
+  → CadScene JSON（base64-f32）         → BRep 精确几何 + 网格化
+  → GET /dsh-cad/scene/<id>            → 内存二进制场景（f32/u32 打包）
+                                        → GET /dsh-cad/bin/<docId>
+            ↓ 会话 presentationMeta（viewId + 版本化 URL）↓
+        浏览器卡片 + 常驻 "3D" 页签（three.js / SVG，Z-up，XYZ 轴）
+```
+
+- **两个 worker**：导入（occt-import-js，只读 STEP/IGES/BREP）与建模（opencascade.js 1.1.1，
+  完整 OCCT）分离，均惰性启动；embind 重载构造器的 `_N` 后缀约定封装在
+  `src/modeling/occt-adapter.cjs`（全部经运行时实证）
+- **直通管道**：建模场景零 base64 / 零 JSON 大数组 / 零每步落盘（磁盘镜像 1.5s 防抖，
+  仅服务重启回放）；`cad_export` 是唯一的显式文件导出
+- **建模文档**：`<workspace>/.dsh-cad/model.json` 操作日志，重启后重放恢复全部 body
+- **客户端**：esbuild 单文件 CJS 工厂（three.js 内联 ~560KB，react 由宿主模块表提供），
+  Z-up CAD 惯例，带 XYZ 轴标签与地面网格的空场景常驻显示
 
 ## 测试
 

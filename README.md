@@ -28,49 +28,6 @@ all-edge fillet as exact OCCT BRep, rendered in the embedded viewer card:
 | ⚡ Zero-copy render pipeline | worker mesh → in-memory binary → three.js typed arrays; zero base64 / zero intermediate files / zero per-step disk writes |
 | 💾 Modeling document persistence | Operation log (JSON) + debounced disk mirror; automatically replayed to restore state after a process restart |
 
-## Modeling Tool Family
-
-| Tool | Description |
-| --- | --- |
-| `cad_view` | Open a CAD file and render an interactive viewer card |
-| `cad_info` | Read-only geometry metadata (format / counts / bounding box / units / layers) |
-| `cad_create_prim` | Primitives (mm, Z-up); `at` for placement, `axis` for orientation (exact axis-angle rotation) |
-| `cad_extrude_profile` | Extrude a closed XY-plane polygon along +Z into a solid |
-| `cad_boolean` | fuse / cut / common (classic hole punching: plate cut cylinder) |
-| `cad_fillet` | Constant-radius fillet on all sharp edges |
-| `cad_transform` | Translate / Euler rotate / mirror |
-| `cad_volume` | Exact BRep volume (mm³) |
-| `cad_export` | Export STEP / STL to a workspace path |
-| `cad_delete` | Delete a body |
-
-After every modeling step: **the same viewer card refreshes in place** (stable viewId +
-versioned URL), and the "3D" tab tracks the latest model in real time.
-
-## Architecture
-
-```
-cad_view(path)                        modeling tools (cad_create_prim, …)
-  → import worker (occt-import-js)      → modeling worker (opencascade.js WASM)
-  → CadScene JSON (base64-f32)          → exact BRep geometry + meshing
-  → GET /dsh-cad/scene/<id>            → in-memory binary scene (f32/u32 packed)
-                                        → GET /dsh-cad/bin/<docId>
-            ↓ session presentationMeta (viewId + versioned URL) ↓
-        browser card + persistent "3D" tab (three.js / SVG, Z-up, XYZ axes)
-```
-
-- **Two workers**: import (occt-import-js, read-only STEP/IGES/BREP) and modeling
-  (opencascade.js 1.1.1, full OCCT) are separate, both lazily started; the `_N`
-  suffix convention of embind overloaded constructors is wrapped in
-  `src/modeling/occt-adapter.cjs` (all verified at runtime)
-- **Zero-copy pipeline**: modeling scenes use zero base64 / zero large JSON arrays /
-  zero per-step disk writes (disk mirror debounced 1.5s, replayed only on service
-  restart); `cad_export` is the only explicit file export
-- **Modeling document**: `<workspace>/.dsh-cad/model.json` operation log; all bodies
-  are restored by replay after a restart
-- **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
-  by the host module table), Z-up CAD convention, empty scene with XYZ axis labels
-  and a ground grid always displayed
-
 ## Installation (dev mode)
 
 ```sh
@@ -99,6 +56,64 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
   → `cad_create_prim` + `cad_boolean` + `cad_fillet` + `cad_export`, with the 3D tab
   updating live at every step
 - “build a snowman” → spheres + a cone nose + a cylinder hat (precise `at`/`axis` placement)
+
+## Modeling Tool Family
+
+| Tool | Description |
+| --- | --- |
+| `cad_view` | Open a CAD file and render an interactive viewer card |
+| `cad_info` | Read-only geometry metadata (format / counts / bounding box / units / layers) |
+| `cad_create_prim` | Primitives (mm, Z-up); `at` for placement, `axis` for orientation (exact axis-angle rotation) |
+| `cad_extrude_profile` | Extrude a closed XY-plane polygon along +Z into a solid |
+| `cad_boolean` | fuse / cut / common (classic hole punching: plate cut cylinder) |
+| `cad_fillet` | Constant-radius fillet on all sharp edges |
+| `cad_transform` | Translate / Euler rotate / mirror |
+| `cad_volume` | Exact BRep volume (mm³) |
+| `cad_export` | Export STEP / STL to a workspace path |
+| `cad_delete` | Delete a body |
+
+After every modeling step: **the same viewer card refreshes in place** (stable viewId +
+versioned URL), and the "3D" tab tracks the latest model in real time.
+
+## Connectors (roadmap)
+
+Modeling today runs on the **built-in WebGL-class kernel** (OCCT in the browser —
+zero install). The connectors below refer to **external CAD engines** acting as
+executors for the same tool family, planned for future support:
+
+| Connector | Suite |
+| --- | --- |
+| FreeCAD | open-source parametric suite — natural local executor via its Python API |
+| SolidWorks | Dassault Systèmes industry-standard 3D CAD |
+| Fusion 360 | Autodesk cloud-connected CAD/CAM |
+| Onshape | cloud-native SaaS CAD, fully in the browser |
+| ZW3D（中望3D） | ZWSOFT all-in-one CAD/CAM |
+| GstarCAD 3D（浩辰3D） | Gstarsoft 3D CAD |
+
+## Architecture
+
+```
+cad_view(path)                        modeling tools (cad_create_prim, …)
+  → import worker (occt-import-js)      → modeling worker (opencascade.js WASM)
+  → CadScene JSON (base64-f32)          → exact BRep geometry + meshing
+  → GET /dsh-cad/scene/<id>            → in-memory binary scene (f32/u32 packed)
+                                        → GET /dsh-cad/bin/<docId>
+            ↓ session presentationMeta (viewId + versioned URL) ↓
+        browser card + persistent "3D" tab (three.js / SVG, Z-up, XYZ axes)
+```
+
+- **Two workers**: import (occt-import-js, read-only STEP/IGES/BREP) and modeling
+  (opencascade.js 1.1.1, full OCCT) are separate, both lazily started; the `_N`
+  suffix convention of embind overloaded constructors is wrapped in
+  `src/modeling/occt-adapter.cjs` (all verified at runtime)
+- **Zero-copy pipeline**: modeling scenes use zero base64 / zero large JSON arrays /
+  zero per-step disk writes (disk mirror debounced 1.5s, replayed only on service
+  restart); `cad_export` is the only explicit file export
+- **Modeling document**: `<workspace>/.dsh-cad/model.json` operation log; all bodies
+  are restored by replay after a restart
+- **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
+  by the host module table), Z-up CAD convention, empty scene with XYZ axis labels
+  and a ground grid always displayed
 
 ## Tests
 
