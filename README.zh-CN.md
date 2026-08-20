@@ -81,14 +81,15 @@ dsh web
 建模目前已由**内置的 WebGL 级建模器**承担（浏览器内的 OCCT 内核，零安装）；
 下表连接器指未来以**外部 CAD 引擎作为执行器**驱动同一工具族：
 
-| 连接器 | 套件 |
-| --- | --- |
-| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器 |
-| SolidWorks | 达索系统的主流 3D CAD |
-| Fusion 360 | Autodesk 云端 CAD/CAM |
-| Onshape | 云原生 SaaS CAD，完全在浏览器中 |
-| 中望3D（ZW3D） | 中望软件的一体化 CAD/CAM |
-| 浩辰3D | 浩辰软件的 3D CAD |
+| 连接器 | 套件 | 状态 |
+| --- | --- | --- |
+| **内置内核** | 基于 OCCT + WebGL 的 CAD 建模内核，浏览器内运行——零安装 | ✅ 内置 |
+| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器 | 🔜 即将支持 |
+| SolidWorks | 达索系统的主流 3D CAD | 🚧 规划中 |
+| Fusion 360 | Autodesk 云端 CAD/CAM | 🚧 规划中 |
+| Onshape | 云原生 SaaS CAD，完全在浏览器中 | 🚧 规划中 |
+| 中望3D（ZW3D） | 中望软件的一体化 CAD/CAM | 🚧 规划中 |
+| 浩辰3D | 浩辰软件的 3D CAD | 🚧 规划中 |
 
 ## 架构
 

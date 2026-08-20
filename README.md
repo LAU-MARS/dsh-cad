@@ -85,14 +85,15 @@ Modeling today runs on the **built-in WebGL-class kernel** (OCCT in the browser 
 zero install). The connectors below refer to **external CAD engines** acting as
 executors for the same tool family, planned for future support:
 
-| Connector | Suite |
-| --- | --- |
-| FreeCAD | open-source parametric suite — natural local executor via its Python API |
-| SolidWorks | Dassault Systèmes industry-standard 3D CAD |
-| Fusion 360 | Autodesk cloud-connected CAD/CAM |
-| Onshape | cloud-native SaaS CAD, fully in the browser |
-| ZW3D（中望3D） | ZWSOFT all-in-one CAD/CAM |
-| GstarCAD 3D（浩辰3D） | Gstarsoft 3D CAD |
+| Connector | Suite | Status |
+| --- | --- | --- |
+| **Built-in kernel** | CAD modeling kernel based on OCCT + WebGL, runs in the browser — zero install | ✅ Built-in |
+| FreeCAD | open-source parametric suite — natural local executor via its Python API | 🔜 Coming soon |
+| SolidWorks | Dassault Systèmes industry-standard 3D CAD | 🚧 Planned |
+| Fusion 360 | Autodesk cloud-connected CAD/CAM | 🚧 Planned |
+| Onshape | cloud-native SaaS CAD, fully in the browser | 🚧 Planned |
+| ZW3D（中望3D） | ZWSOFT all-in-one CAD/CAM | 🚧 Planned |
+| GstarCAD 3D（浩辰3D） | Gstarsoft 3D CAD | 🚧 Planned |
 
 ## Architecture
 
