@@ -8,6 +8,27 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { findFreeCad, freecadAvailable, runFreeCadProgram } from '../src/cad_connector/freecad-executor.js'
+import { normalizeFreeCadSteps } from '../src/tools/cad-freecad.js'
+
+describe('freecad op normalization', () => {
+  it('maps the model-emittd shapes onto canonical ops (regression: real session input)', () => {
+    const normalized = normalizeFreeCadSteps([
+      { op: 'create_prim', kind: 'box', bodyId: 'plate', dx: 100, dy: 60, dz: 10 },
+      { op: 'create_prim', kind: 'cylinder', bodyId: 'hole', radius: 10, height: 12, at: [50, 30, 0] },
+      { op: 'cut', target: 'plate', tools: ['hole'] },
+    ])
+    expect(normalized[0]).toEqual({ kind: 'create_prim', prim: 'box', bodyId: 'plate', params: { dx: 100, dy: 60, dz: 10 } })
+    expect(normalized[1]).toEqual({ kind: 'create_prim', prim: 'cylinder', bodyId: 'hole', params: { radius: 10, height: 12, at: [50, 30, 0] } })
+    expect(normalized[2]).toEqual({ kind: 'boolean', op: 'cut', target: 'plate', tools: ['hole'] })
+  })
+
+  it('leaves canonical ops untouched and folds inline prim fields', () => {
+    const canonical = { kind: 'fillet', target: 'b1', radius: 2 }
+    expect(normalizeFreeCadSteps([canonical])[0]).toEqual(canonical)
+    const folded = normalizeFreeCadSteps([{ kind: 'create_prim', bodyId: 'b2', prim: 'sphere', radius: 5 }])
+    expect(folded[0]).toEqual({ kind: 'create_prim', bodyId: 'b2', prim: 'sphere', params: { radius: 5 } })
+  })
+})
 
 describe('freecad availability', () => {
   it('probes without throwing', () => {

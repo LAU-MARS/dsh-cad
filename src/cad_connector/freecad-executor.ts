@@ -5,7 +5,7 @@
  * volumes. Each run is an isolated temp-dir process — no shared state with
  * the WASM session worker.
  */
-import { execFile } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -28,6 +28,8 @@ export interface FreeCadProgram {
   names?: Record<string, string>
   input?: { format: 'step' | 'stp' | 'brep' | 'stl'; path: string; bodyId?: string }
   export?: { format: 'step' | 'stp' | 'stl'; path: string }
+  /** Put the final bodies into a FreeCAD document so the GUI shows them. */
+  display?: boolean
 }
 
 export interface FreeCadResult {
@@ -37,6 +39,7 @@ export interface FreeCadResult {
 }
 
 let probed: string | null | undefined
+let probedGui: string | null | undefined
 
 function firstExisting(candidates: string[]): string | null {
   for (const candidate of candidates) {
@@ -66,24 +69,43 @@ function windowsInstallDirs(): string[] {
   return dirs
 }
 
+function findFreeCadIn(gui: boolean): string | null {
+  // FREECAD_BIN points at the console binary; its GUI sibling sits next to it.
+  if (process.env.FREECAD_BIN !== undefined && process.env.FREECAD_BIN !== '') {
+    if (gui) {
+      const sibling = path.join(path.dirname(process.env.FREECAD_BIN), 'FreeCAD.exe')
+      if (existsSync(sibling)) return sibling
+    } else {
+      return process.env.FREECAD_BIN
+    }
+  }
+  const candidates = gui
+    ? [
+        '/usr/bin/freecad', '/usr/local/bin/freecad',
+        '/Applications/FreeCAD.app/Contents/MacOS/FreeCAD',
+        ...windowsInstallDirs().reverse(),
+      ]
+    : [
+        '/usr/bin/freecadcmd', '/usr/local/bin/freecadcmd',
+        '/usr/bin/FreeCADCmd', '/opt/freecad/bin/freecadcmd',
+        '/Applications/FreeCAD.app/Contents/MacOS/FreeCADCmd',
+        '/usr/bin/freecad', '/usr/local/bin/freecad',
+        ...windowsInstallDirs(),
+      ]
+  return firstExisting(candidates)
+}
+
 /**
  * Locate a FreeCAD console executable: FREECAD_BIN env → PATH candidates →
- * common install directories. Cached after the first probe.
+ * common install directories. Cached after the first probe. Pass
+ * `{ gui: true }` for the GUI binary (windowed) variant.
  */
-export function findFreeCad(): string | null {
-  if (probed !== undefined) return probed
-  const candidates: string[] = []
-  if (process.env.FREECAD_BIN !== undefined && process.env.FREECAD_BIN !== '') {
-    candidates.push(process.env.FREECAD_BIN)
+export function findFreeCad(options: { gui?: boolean } = {}): string | null {
+  if (options.gui === true) {
+    if (probedGui === undefined) probedGui = findFreeCadIn(true)
+    return probedGui
   }
-  candidates.push(
-    '/usr/bin/freecadcmd', '/usr/local/bin/freecadcmd',
-    '/usr/bin/FreeCADCmd', '/opt/freecad/bin/freecadcmd',
-    '/Applications/FreeCAD.app/Contents/MacOS/FreeCADCmd',
-    '/usr/bin/freecad', '/usr/local/bin/freecad',
-  )
-  if (process.platform === 'win32') candidates.push(...windowsInstallDirs())
-  probed = firstExisting(candidates)
+  if (probed === undefined) probed = findFreeCadIn(false)
   return probed
 }
 
@@ -285,6 +307,13 @@ def run(spec):
         else:
             raise ValueError('unsupported export format: %s' % fmt)
         result['exported'] = target_path
+    if spec.get('display'):
+        document = FreeCAD.newDocument('dsh-cad')
+        for body_id, shape in bodies.items():
+            obj = document.addObject('Part::Feature', body_id)
+            obj.Label = names.get(body_id, body_id)
+            obj.Shape = shape
+        document.recompute()
     return result
 
 
@@ -316,17 +345,57 @@ interface BridgeResult {
   exported?: string
 }
 
+export interface RunFreeCadOptions {
+  timeoutMs?: number
+  /** Run in the FreeCAD GUI (detached window that stays open, showing the bodies). */
+  gui?: boolean
+}
+
 /**
- * Run a feature program in an external FreeCAD console process and return
- * tessellated meshes + volumes (+ exported file path).
+ * Run a feature program in an external FreeCAD process and return tessellated
+ * meshes + volumes (+ exported file path). Console mode waits for exit; GUI
+ * mode detaches the windowed process and polls for the result file.
  */
-export async function runFreeCadProgram(program: FreeCadProgram, timeoutMs = 300_000): Promise<FreeCadResult> {
-  const executable = findFreeCad()
+export async function runFreeCadProgram(program: FreeCadProgram, options: RunFreeCadOptions = {}): Promise<FreeCadResult> {
+  const timeoutMs = options.timeoutMs ?? 300_000
+  const gui = options.gui === true
+  const executable = findFreeCad(gui ? { gui: true } : {})
   if (executable === null) {
-    throw new Error('FreeCAD was not found — install FreeCAD or point FREECAD_BIN at its console binary (freecadcmd)')
+    throw new Error(
+      gui
+        ? 'FreeCAD GUI was not found — install FreeCAD or point FREECAD_BIN at its console binary'
+        : 'FreeCAD was not found — install FreeCAD or point FREECAD_BIN at its console binary (freecadcmd)',
+    )
   }
 
   const dir = await mkdtemp(path.join(tmpdir(), 'dsh-cad-freecad-'))
+  const resultPath = path.join(dir, 'result.json')
+  if (gui) {
+    // Detached GUI window: the bridge writes result.json while the document
+    // stays open on screen; the temp dir is left for the running process.
+    await writeFile(path.join(dir, 'bridge.py'), BRIDGE)
+    await writeFile(path.join(dir, 'ops.json'), JSON.stringify(program))
+    const child = spawn(executable, [path.join(dir, 'bridge.py')], {
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: false,
+    })
+    child.unref()
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 800))
+      if (existsSync(resultPath)) {
+        const parsed = JSON.parse(await readFile(resultPath, 'utf8')) as BridgeResult
+        const mapped = mapBridgeResult(parsed)
+        // The script has finished executing; the temp files are no longer
+        // needed by the still-open GUI window.
+        await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+        return mapped
+      }
+    }
+    throw new Error('the FreeCAD GUI produced no result before the timeout')
+  }
+
   try {
     const script = path.join(dir, 'bridge.py')
     const specPath = path.join(dir, 'ops.json')
@@ -345,28 +414,31 @@ export async function runFreeCadProgram(program: FreeCadProgram, timeoutMs = 300
 
     let parsed: BridgeResult
     try {
-      parsed = JSON.parse(await readFile(path.join(dir, 'result.json'), 'utf8')) as BridgeResult
+      parsed = JSON.parse(await readFile(resultPath, 'utf8')) as BridgeResult
     } catch {
       throw new Error(`the FreeCAD bridge produced no result (stdout: ${stdout.slice(-400)})`)
     }
-    if (!parsed.ok) {
-      throw new Error(`FreeCAD bridge failed: ${parsed.error ?? 'unknown error'}`)
-    }
-
-    return {
-      meshes: (parsed.meshes ?? []).map((mesh) => ({
-        bodyId: mesh.bodyId,
-        name: mesh.name === '' ? mesh.bodyId : mesh.name,
-        positions: Float32Array.from(mesh.positions),
-        normals: Float32Array.from(mesh.normals),
-        indices: Uint32Array.from(mesh.indices),
-        vertexCount: mesh.vertexCount,
-        triangleCount: mesh.triangleCount,
-      })),
-      volumes: parsed.volumes ?? {},
-      exported: parsed.exported,
-    }
+    return mapBridgeResult(parsed)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+}
+
+function mapBridgeResult(parsed: BridgeResult): FreeCadResult {
+  if (!parsed.ok) {
+    throw new Error(`FreeCAD bridge failed: ${parsed.error ?? 'unknown error'}`)
+  }
+  return {
+    meshes: (parsed.meshes ?? []).map((mesh) => ({
+      bodyId: mesh.bodyId,
+      name: mesh.name === '' ? mesh.bodyId : mesh.name,
+      positions: Float32Array.from(mesh.positions),
+      normals: Float32Array.from(mesh.normals),
+      indices: Uint32Array.from(mesh.indices),
+      vertexCount: mesh.vertexCount,
+      triangleCount: mesh.triangleCount,
+    })),
+    volumes: parsed.volumes ?? {},
+    exported: parsed.exported,
   }
 }
