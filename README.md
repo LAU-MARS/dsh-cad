@@ -1,77 +1,80 @@
 # dsh-cad — CAD Plugin for DeepSeek Harness
 
-[DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness) 的 CAD 插件：
-在 Web UI 中提供**内嵌 3D/2D CAD 查看器**与**原生参数化建模工具族**（OCCT 内核），
-让 agent 能够"边建边看"地完成 CAD 工作。
+English | [简体中文](./README.zh-CN.md)
 
-> English: dsh-cad is a CAD plugin for DeepSeek Harness — an embedded 3D/2D viewer
-> plus a native parametric modeling tool family (OCCT kernel) so the agent can
-> build and inspect CAD geometry step by step, live in the chat UI.
+A CAD plugin for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness):
+an **embedded 3D/2D CAD viewer** plus a **native parametric modeling tool family**
+(OCCT kernel) in the Web UI, letting the agent build and inspect CAD geometry
+step by step — "model while you watch".
 
-## 功能总览
+## Feature Overview
 
-| 能力 | 说明 |
+| Capability | Description |
 | --- | --- |
-| 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP（3D），DXF / SVG（2D），对话内嵌交互卡片（轨道旋转 / 缩放 / 线框 / 平移） |
-| 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
-| 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
-| 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |
-| 🖥️ 常驻 3D 显示区 | 会话页签栏常驻 "3D" 页签：无模型时显示 XYZ 坐标轴 + 网格（Z-up），建模时**实时跟踪最新模型** |
-| ⚡ 直通渲染管道 | worker 网格 → 内存二进制 → three.js typed-array，零 base64 / 零中间文件 / 零每步落盘 |
-| 💾 建模文档持久化 | 操作日志（JSON）+ 防抖磁盘镜像，进程重启后自动重放恢复 |
+| 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
+| 🏗️ Parametric modeling | Primitives (box/cylinder/sphere/cone/torus), profile extrusion, booleans (fuse/cut/common), all-edge fillet, transforms (translate/rotate/mirror) — exact OCCT BRep, not a mesh approximation |
+| 📐 Geometry measurement | Exact volume (mm³), bounding box, triangle counts, DXF layers |
+| 📤 On-demand export | STEP (parametric) / STL (mesh); files are written only when the user asks |
+| 🖥️ Persistent 3D view panel | A permanent "3D" tab in the session tab bar: XYZ axes + grid (Z-up) when empty, **tracks the latest model in real time** while modeling |
+| ⚡ Zero-copy render pipeline | worker mesh → in-memory binary → three.js typed arrays; zero base64 / zero intermediate files / zero per-step disk writes |
+| 💾 Modeling document persistence | Operation log (JSON) + debounced disk mirror; automatically replayed to restore state after a process restart |
 
-## 模型工具族
+## Modeling Tool Family
 
-| 工具 | 说明 |
+| Tool | Description |
 | --- | --- |
-| `cad_view` | 打开 CAD 文件，渲染交互式查看器卡片 |
-| `cad_info` | 只读几何元信息（格式/数量/包围盒/单位/图层） |
-| `cad_create_prim` | 基本体（mm，Z-up），`at` 定位、`axis` 定向（精确轴角旋转） |
-| `cad_extrude_profile` | XY 平面闭合多边形沿 +Z 拉伸成实体 |
-| `cad_boolean` | fuse / cut / common（经典打孔：plate cut cylinder） |
-| `cad_fillet` | 全锐边等半径圆角 |
-| `cad_transform` | 平移 / 欧拉旋转 / 镜像 |
-| `cad_volume` | 精确 BRep 体积（mm³） |
-| `cad_export` | 导出 STEP / STL 到工作区路径 |
-| `cad_delete` | 删除 body |
+| `cad_view` | Open a CAD file and render an interactive viewer card |
+| `cad_info` | Read-only geometry metadata (format / counts / bounding box / units / layers) |
+| `cad_create_prim` | Primitives (mm, Z-up); `at` for placement, `axis` for orientation (exact axis-angle rotation) |
+| `cad_extrude_profile` | Extrude a closed XY-plane polygon along +Z into a solid |
+| `cad_boolean` | fuse / cut / common (classic hole punching: plate cut cylinder) |
+| `cad_fillet` | Constant-radius fillet on all sharp edges |
+| `cad_transform` | Translate / Euler rotate / mirror |
+| `cad_volume` | Exact BRep volume (mm³) |
+| `cad_export` | Export STEP / STL to a workspace path |
+| `cad_delete` | Delete a body |
 
-每步建模后：**同一查看器卡片原地刷新**（稳定 viewId + 版本化 URL），
-"3D" 页签实时跟踪最新模型。
+After every modeling step: **the same viewer card refreshes in place** (stable viewId +
+versioned URL), and the "3D" tab tracks the latest model in real time.
 
-## 架构
+## Architecture
 
 ```
-cad_view(path)                        建模工具（cad_create_prim 等）
-  → 导入 worker（occt-import-js）       → 建模 worker（opencascade.js WASM）
-  → CadScene JSON（base64-f32）         → BRep 精确几何 + 网格化
-  → GET /dsh-cad/scene/<id>            → 内存二进制场景（f32/u32 打包）
+cad_view(path)                        modeling tools (cad_create_prim, …)
+  → import worker (occt-import-js)      → modeling worker (opencascade.js WASM)
+  → CadScene JSON (base64-f32)          → exact BRep geometry + meshing
+  → GET /dsh-cad/scene/<id>            → in-memory binary scene (f32/u32 packed)
                                         → GET /dsh-cad/bin/<docId>
-            ↓ 会话 presentationMeta（viewId + 版本化 URL）↓
-        浏览器卡片 + 常驻 "3D" 页签（three.js / SVG，Z-up，XYZ 轴）
+            ↓ session presentationMeta (viewId + versioned URL) ↓
+        browser card + persistent "3D" tab (three.js / SVG, Z-up, XYZ axes)
 ```
 
-- **两个 worker**：导入（occt-import-js，只读 STEP/IGES/BREP）与建模（opencascade.js 1.1.1，
-  完整 OCCT）分离，均惰性启动；embind 重载构造器的 `_N` 后缀约定封装在
-  `src/modeling/occt-adapter.cjs`（全部经运行时实证）
-- **直通管道**：建模场景零 base64 / 零 JSON 大数组 / 零每步落盘（磁盘镜像 1.5s 防抖，
-  仅服务重启回放）；`cad_export` 是唯一的显式文件导出
-- **建模文档**：`<workspace>/.dsh-cad/model.json` 操作日志，重启后重放恢复全部 body
-- **客户端**：esbuild 单文件 CJS 工厂（three.js 内联 ~560KB，react 由宿主模块表提供），
-  Z-up CAD 惯例，带 XYZ 轴标签与地面网格的空场景常驻显示
+- **Two workers**: import (occt-import-js, read-only STEP/IGES/BREP) and modeling
+  (opencascade.js 1.1.1, full OCCT) are separate, both lazily started; the `_N`
+  suffix convention of embind overloaded constructors is wrapped in
+  `src/modeling/occt-adapter.cjs` (all verified at runtime)
+- **Zero-copy pipeline**: modeling scenes use zero base64 / zero large JSON arrays /
+  zero per-step disk writes (disk mirror debounced 1.5s, replayed only on service
+  restart); `cad_export` is the only explicit file export
+- **Modeling document**: `<workspace>/.dsh-cad/model.json` operation log; all bodies
+  are restored by replay after a restart
+- **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
+  by the host module table), Z-up CAD convention, empty scene with XYZ axis labels
+  and a ground grid always displayed
 
-## 安装（开发模式）
+## Installation (dev mode)
 
 ```sh
-git clone https://gitee.com/liuxinwin_admin/dsh-cad.git
+git clone https://github.com/LAU-MARS/dsh-cad.git
 cd dsh-cad
 npm install && npm run build && npm test
 
-npm install -g @deepseek-ai/dsh pnpm   # 需要 Node ≥ 22
-dsh web                                  # 首次启动初始化 profile 后 Ctrl-C
+npm install -g @deepseek-ai/dsh pnpm   # requires Node ≥ 22
+dsh web                                  # let the first launch init the profile, then Ctrl-C
 
 dsh plugin --profile web add /path/to/dsh-cad
 
-# ~/.dsh/profiles/web/cordis.patch.yml 追加：
+# append to ~/.dsh/profiles/web/cordis.patch.yml:
 #   - insert:
 #       - id: dsh-cad
 #         name: 'dsh-cad'
@@ -79,34 +82,43 @@ dsh plugin --profile web add /path/to/dsh-cad
 dsh web
 ```
 
-设置 `DEEPSEEK_API_KEY` 后对话即可使用，例如：
+Set `DEEPSEEK_API_KEY` and you are ready — for example:
 
-- “打开 bracket.stl 看看” → `cad_view`
-- “画一个 100×60×5 的板，中间打 ⌀20 孔，四角 R2 圆角，加 ⌀16 高 20 凸台，导出 plate.step”
-  → `cad_create_prim` + `cad_boolean` + `cad_fillet` + `cad_export`，每步 3D 页签实时更新
-- “堆一个雪人” → 球体 + 圆锥鼻子 + 圆柱帽子（`at`/`axis` 精确定位）
+- “open bracket.stl” → `cad_view`
+- “model a 100×60×5 plate, punch a ⌀20 hole in the middle, R2 fillets on the four
+  corners, add a ⌀16 boss 20 tall, export plate.step”
+  → `cad_create_prim` + `cad_boolean` + `cad_fillet` + `cad_export`, with the 3D tab
+  updating live at every step
+- “build a snowman” → spheres + a cone nose + a cylinder hat (precise `at`/`axis` placement)
 
-## 测试
+## Tests
 
 ```sh
-npm test                             # 26 项：转换器 / 建模 worker（体积精确断言）/ 二进制管道 / 文档持久化
-node test/m0-kernel-check.cjs        # OCCT 内核 API 冒烟
-node test/route-check.mjs            # JSON 场景路由层
-node test/visual/serve.mjs           # 浏览器卡片/页签视觉验证页（http://127.0.0.1:3987）
+npm test                             # 26 tests: converters / modeling worker (exact volume assertions) / binary pipeline / document persistence
+node test/m0-kernel-check.cjs        # OCCT kernel API smoke test
+node test/route-check.mjs            # JSON scene routing layer
+node test/visual/serve.mjs           # browser card/tab visual verification page (http://127.0.0.1:3987)
 ```
 
-覆盖的代表性断言：布尔打孔体积精确等于解析值（28429.20 mm³）、L 型轮廓拉伸
-3000 mm³、球/锥/环带 `at`/`axis` 定位的体积与包围盒翻转、二进制打包 8 字节对齐、
-STL 导出往返（导出 → 一期解析器读回）。
+Representative assertions covered: the boolean-punched volume exactly equals the
+analytic value (28429.20 mm³), L-shaped profile extrusion 3000 mm³, volumes and
+bounding-box flips of sphere/cone/torus placed with `at`/`axis`, 8-byte alignment
+of the binary packing, and an STL export round-trip (export → read back by the
+phase-1 parser).
 
-## 已知限制
+## Known Limitations
 
-- DWG（闭源）不支持；DXF bulge 弧以弦线近似；glTF/3MF 查看未实现（结构已预留）
-- `cad_fillet` 为全边等半径（embind 下按边选择不稳定）；chamfer 未实现
-- 草图拉伸仅支持多边形轮廓（圆弧轮廓用布尔组合圆柱/圆环构造）
-- dsh 框架限制：已挂载的 single 槽（右侧 details 面板本体）不响应后注册组件，
-  故常驻显示区以 "3D" 视图页签提供（list 槽，官方组合方式）
-- 宿主读取 CAD 文件使用 node:fs（平台 fs 服务仅支持 UTF-8 文本，无法承载二进制）
+- DWG (closed-source) is unsupported; DXF bulge arcs are approximated by chords;
+  glTF/3MF viewing is not implemented (the structure is reserved)
+- `cad_fillet` is all-edge constant-radius (per-edge selection is unstable under
+  embind); chamfer is not implemented
+- Sketch extrusion supports polygon profiles only (arc profiles are constructed by
+  boolean combinations of cylinders/tori)
+- dsh framework limitation: an already-mounted single slot (the right-side details
+  panel itself) does not respond to components registered later, so the persistent
+  view is provided as the "3D" view tab (a list slot, the official composition)
+- The host reads CAD files via node:fs (the platform fs service supports UTF-8 text
+  only and cannot carry binary data)
 
 ## License
 
