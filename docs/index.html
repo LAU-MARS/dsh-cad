@@ -101,6 +101,13 @@
   .card h3 { font-family: var(--font-display); font-weight: 600; font-size: 17.5px; letter-spacing: -.01em; margin-bottom: 8px; }
   .card p { font-size: 14.5px; color: var(--ink-2); }
 
+  /* dimension tabs */
+  [hidden] { display: none !important; }
+  .tabs { display: inline-flex; gap: 4px; border: 1px solid var(--line); background: #fff; border-radius: var(--pill); padding: 4px; margin-bottom: 28px; }
+  .tab { border: 0; background: transparent; border-radius: var(--pill); padding: 8px 26px; font: 500 14px var(--font-body); color: var(--ink-2); cursor: pointer; transition: all .15s; }
+  .tab:hover { color: var(--blue); }
+  .tab.active { background: var(--blue); color: #fff; box-shadow: 0 2px 8px rgba(77,107,254,.3); }
+
   /* tools table */
   .tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
   @media (max-width: 760px) { .tools { grid-template-columns: 1fr; } }
@@ -171,24 +178,65 @@
 </section>
 
 <!-- ── features ─────────────────────────────────────────── -->
-<section class="soft">
+<section class="soft" id="capabilities">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-eyebrow" data-en="Capabilities" data-zh="能力">Capabilities</div>
       <h2 data-en="A full CAD workbench, in the conversation." data-zh="把完整 CAD 工作台装进对话。">A full CAD workbench, in the conversation.</h2>
       <p class="sec-sub" data-en="View, measure, model and export — every step stays exact BRep on the OCCT kernel, never a mesh approximation." data-zh="查看、测量、建模、导出——每一步都是 OCCT 内核上的精确 BRep，而非网格近似。">View, measure, model and export — every step stays exact BRep on the OCCT kernel, never a mesh approximation.</p>
     </div>
-    <div class="grid-4">
-      <div class="card"><span class="ico">🔍</span><h3 data-en="CAD viewing" data-zh="CAD 查看">CAD viewing</h3><p data-en="STL / OBJ / STEP / IGES / BREP in 3D, DXF / SVG in 2D — interactive orbit / zoom / wireframe cards right inside the chat." data-zh="3D 支持 STL / OBJ / STEP / IGES / BREP，2D 支持 DXF / SVG——对话内嵌交互卡片，轨道旋转 / 缩放 / 线框。">STL / OBJ / STEP / IGES / BREP in 3D, DXF / SVG in 2D — interactive orbit / zoom / wireframe cards right inside the chat.</p></div>
+    <div class="tabs" role="tablist" aria-label="3D / 2D">
+      <button class="tab active" id="tab-3d" role="tab" aria-selected="true" onclick="showDim('3d')">3D</button>
+      <button class="tab" id="tab-2d" role="tab" aria-selected="false" onclick="showDim('2d')">2D</button>
+    </div>
+    <div id="pane-3d" class="grid-4" role="tabpanel" aria-labelledby="tab-3d">
+      <div class="card"><span class="ico">🔍</span><h3 data-en="3D viewing" data-zh="3D 查看">3D viewing</h3><p data-en="STL / OBJ / STEP / IGES / BREP — interactive orbit / zoom / wireframe cards right inside the chat." data-zh="STL / OBJ / STEP / IGES / BREP——对话内嵌交互卡片，轨道旋转 / 缩放 / 线框。">STL / OBJ / STEP / IGES / BREP — interactive orbit / zoom / wireframe cards right inside the chat.</p></div>
       <div class="card"><span class="ico">🏗️</span><h3 data-en="Parametric modeling" data-zh="参数化建模">Parametric modeling</h3><p data-en="Primitives, profile extrusion, booleans (fuse / cut / common), all-edge fillets and transforms — mm, Z-up, exact axis-angle placement." data-zh="基本体、轮廓拉伸、布尔（fuse / cut / common）、全边圆角与变换——mm 单位、Z-up、精确轴角定位。">Primitives, profile extrusion, booleans (fuse / cut / common), all-edge fillets and transforms — mm, Z-up, exact axis-angle placement.</p></div>
       <div class="card"><span class="ico">🖥️</span><h3 data-en="Resident “3D” tab" data-zh="常驻 “3D” 页签">Resident “3D” tab</h3><p data-en="A permanent tab beside the chat: XYZ axes + grid when empty, then tracking the latest model in real time as the agent works." data-zh="对话旁的常驻页签：空场景显示 XYZ 坐标轴与网格，建模时实时跟踪最新模型。">A permanent tab beside the chat: XYZ axes + grid when empty, then tracking the latest model in real time as the agent works.</p></div>
       <div class="card"><span class="ico">⚡</span><h3 data-en="Zero-copy pipeline" data-zh="直通渲染管道">Zero-copy pipeline</h3><p data-en="Worker meshes → in-memory binary → three.js typed arrays. No base64, no intermediate files, no per-step disk writes; documents persist and replay on restart." data-zh="worker 网格 → 内存二进制 → three.js typed array。零 base64、零中间文件、零每步落盘；文档持久化，重启自动重放恢复。">Worker meshes → in-memory binary → three.js typed arrays. No base64, no intermediate files, no per-step disk writes; documents persist and replay on restart.</p></div>
+    </div>
+    <div id="pane-2d" class="grid-4" role="tabpanel" aria-labelledby="tab-2d" hidden>
+      <div class="card"><span class="ico">📐</span><h3 data-en="2D viewing" data-zh="2D 查看">2D viewing</h3><p data-en="DXF / SVG drawings render as crisp vector cards in the chat — resolution-independent lines in true drawing units." data-zh="DXF / SVG 图纸以矢量卡片渲染——线条分辨率无关，保留真实图纸单位。">DXF / SVG drawings render as crisp vector cards in the chat — resolution-independent lines in true drawing units.</p></div>
+      <div class="card"><span class="ico">🗂️</span><h3 data-en="Layers &amp; entities" data-zh="图层与实体">Layers &amp; entities</h3><p data-en="cad_info reports DXF layer structure, entity counts and drawing metadata — read-only, without touching geometry." data-zh="cad_info 只读报告 DXF 图层结构、实体数量与图纸元信息，不动几何。">cad_info reports DXF layer structure, entity counts and drawing metadata — read-only, without touching geometry.</p></div>
+      <div class="card"><span class="ico">📏</span><h3 data-en="Extents &amp; units" data-zh="范围与单位">Extents &amp; units</h3><p data-en="Every 2D card shows exact drawing extents (e.g. 100 × 70 mm) with one-click Fit — verify scale at a glance." data-zh="每张 2D 卡片显示图纸精确范围（如 100 × 70 mm），一键 Fit 适配——一眼核对比例。">Every 2D card shows exact drawing extents (e.g. 100 × 70 mm) with one-click Fit — verify scale at a glance.</p></div>
+      <div class="card"><span class="ico">✏️</span><h3 data-en="Profiles → 3D" data-zh="轮廓 → 3D">Profiles → 3D</h3><p data-en="Closed 2D profiles are first-class input to modeling: extrude any polygon sketch into an exact 3D solid along +Z." data-zh="闭合 2D 轮廓是建模的一等输入：任意多边形草图沿 +Z 拉伸为精确 3D 实体。">Closed 2D profiles are first-class input to modeling: extrude any polygon sketch into an exact 3D solid along +Z.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── installation ─────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-en="Installation" data-zh="安装">Installation</div>
+      <h2 data-en="Try it in two minutes." data-zh="两分钟即可上手。">Try it in two minutes.</h2>
+    </div>
+    <div class="start-grid">
+      <div>
+        <h3 data-en="1 · Build the plugin" data-zh="1 · 构建插件">1 · Build the plugin</h3>
+        <div class="code-card">
+          <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
+<pre><span class="k">git clone</span> https://github.com/LAU-MARS/dsh-cad.git
+<span class="k">cd</span> dsh-cad
+npm install &amp;&amp; npm run build &amp;&amp; npm test</pre>
+        </div>
+      </div>
+      <div>
+        <h3 data-en="2 · Register &amp; launch" data-zh="2 · 注册并启动">2 · Register &amp; launch</h3>
+        <div class="code-card">
+          <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
+<pre><span class="k">npm i -g</span> @deepseek-ai/dsh pnpm  <span class="c"># Node ≥ 22</span>
+<span class="k">dsh web</span>                            <span class="c"># init profile, Ctrl-C</span>
+<span class="k">dsh plugin</span> --profile web add /path/to/dsh-cad
+<span class="k">dsh web</span>   <span class="c"># set DEEPSEEK_API_KEY, then chat</span></pre>
+        </div>
+      </div>
     </div>
   </div>
 </section>
 
 <!-- ── tool family ──────────────────────────────────────── -->
-<section>
+<section class="soft">
   <div class="wrap">
     <div class="sec-head">
       <div class="sec-eyebrow" data-en="The tool family" data-zh="工具族">The tool family</div>
@@ -267,6 +315,15 @@ npm install &amp;&amp; npm run build &amp;&amp; npm test</pre>
   function toggleLang() {
     var cur = document.documentElement.lang === 'zh-CN' ? 'zh' : 'en';
     applyLang(cur === 'zh' ? 'en' : 'zh');
+  }
+  function showDim(d) {
+    ['3d', '2d'].forEach(function (k) {
+      var on = k === d;
+      document.getElementById('pane-' + k).hidden = !on;
+      var t = document.getElementById('tab-' + k);
+      t.classList.toggle('active', on);
+      t.setAttribute('aria-selected', on);
+    });
   }
   var saved = 'en';
   try { saved = localStorage.getItem('dsh-cad-lang') || 'en'; } catch (e) {}
