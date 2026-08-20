@@ -2,6 +2,8 @@
 
 [English](./README.md) | 简体中文
 
+🌐 项目主页：<https://lau-mars.github.io/dsh-cad/>
+
 [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness) 的 CAD 插件：
 在 Web UI 中提供**内嵌 3D/2D CAD 查看器**与**原生参数化建模工具族**（OCCT 内核），
 让 agent 能够"边建边看"地完成 CAD 工作。

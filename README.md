@@ -2,6 +2,8 @@
 
 English | [简体中文](./README.zh-CN.md)
 
+🌐 Homepage: <https://lau-mars.github.io/dsh-cad/>
+
 A CAD plugin for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness):
 an **embedded 3D/2D CAD viewer** plus a **native parametric modeling tool family**
 (OCCT kernel) in the Web UI, letting the agent build and inspect CAD geometry
