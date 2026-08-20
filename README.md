@@ -1,8 +1,12 @@
 # dsh-cad — CAD Plugin for DeepSeek Harness
 
-English | [简体中文](./README.zh-CN.md)
+[![homepage](https://img.shields.io/badge/homepage-dsh--cad-4D6BFE)](https://lau-mars.github.io/dsh-cad/)
+[![dsh plugin](https://img.shields.io/badge/dsh-plugin-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
+[![OCCT](https://img.shields.io/badge/kernel-OCCT-4D6BFE)](https://github.com/donalffons/opencascade.js)
+[![License: MIT](https://img.shields.io/badge/license-MIT-4D6BFE)](./LICENSE)
 
-🌐 Homepage: <https://lau-mars.github.io/dsh-cad/>
+English | [简体中文](./README.zh-CN.md)
 
 A CAD plugin for [DeepSeek Harness (dsh)](https://github.com/deepseek-ai/deepseek-harness):
 an **embedded 3D/2D CAD viewer** plus a **native parametric modeling tool family**
