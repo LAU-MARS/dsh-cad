@@ -1,5 +1,7 @@
 # dsh-cad — CAD Plugin for DeepSeek Harness
 
+![dsh-cad banner](docs/img/banner.svg)
+
 [![homepage](https://img.shields.io/badge/homepage-dsh--cad-4D6BFE)](https://lau-mars.github.io/dsh-cad/)
 [![dsh plugin](https://img.shields.io/badge/dsh-plugin-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
