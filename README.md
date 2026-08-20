@@ -7,6 +7,13 @@ an **embedded 3D/2D CAD viewer** plus a **native parametric modeling tool family
 (OCCT kernel) in the Web UI, letting the agent build and inspect CAD geometry
 step by step — "model while you watch".
 
+## Preview
+
+An L-bracket modeled live in the chat — profile extrusion, through holes and
+all-edge fillet as exact OCCT BRep, rendered in the embedded viewer card:
+
+![L-bracket modeled with dsh-cad](docs/img/bracket-preview.png)
+
 ## Feature Overview
 
 | Capability | Description |
