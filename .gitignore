@@ -9,3 +9,5 @@ test/visual/scene-3d-snowman.json
 .dsh-cad/
 .zcode/
 docs/marketing/
+/*.step
+/*.stl
