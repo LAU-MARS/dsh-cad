@@ -19,7 +19,7 @@ export function createCadInfoTool(deps: CadInfoToolDeps): ToolDefinition {
     name: 'cad_info',
     description:
       'Inspect a CAD file and return geometry metadata only (no viewer): format, part/triangle or entity counts, ' +
-      'axis-aligned bounds, units (STEP/IGES), and layer names (DXF). Cheaper than cad_view when only numbers are needed.',
+      'axis-aligned bounds, units (STEP/IGES/DCPRT), and layer names (DXF). Cheaper than cad_view when only numbers are needed.',
     parameters: {
       path: {
         type: 'string',
@@ -70,7 +70,7 @@ export function createCadInfoTool(deps: CadInfoToolDeps): ToolDefinition {
       const format = detectFormat(name)
       if (format === null) {
         throw new Error(
-          `unsupported CAD format: ${name} — supported extensions are .stl .obj .step .stp .iges .igs .brep .dxf .svg`,
+          `unsupported CAD format: ${name} — supported extensions are .stl .obj .step .stp .iges .igs .brep .dcprt .dxf .svg`,
         )
       }
       const buffer = await loadCadFile(resolved)

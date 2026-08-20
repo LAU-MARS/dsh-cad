@@ -12,12 +12,13 @@
 import { writeFile } from 'node:fs/promises'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
-import { runModelOp } from '../modeling/client.js'
+import { runModelOp, workerResetEpoch } from '../modeling/client.js'
 import type { ModelOp, OpResult, WorkerMesh } from '../modeling/client.js'
 import { ModelDocument } from '../modeling/document.js'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
 import type { BinMeshData } from '../modeling/bin-format.js'
 import { resolveWorkspacePath } from './util.js'
+import { toDcPrtDocument } from '../feature_script/dc_prt.js'
 
 export interface ModelToolDeps {
   store: BinarySceneStore
@@ -40,11 +41,12 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   const document = new ModelDocument(deps.workspaceRoot)
   /** bodyId → raw worker mesh mirror (binary scene source, zero encoding). */
   const meshCache = new Map<string, BinMeshData>()
-  let restored = false
+  /** Reset epoch after the last sync — out-of-band replays (cad_view on a
+   *  .dcprt) bump the epoch and force a re-replay before the next op. */
+  let syncedEpoch = -1
 
   async function restoreOnce(): Promise<void> {
-    if (restored) return
-    restored = true
+    if (syncedEpoch === workerResetEpoch()) return
     await document.restore()
     if (document.doc.ops.length > 0) {
       await runModelOp({ kind: 'reset' })
@@ -61,6 +63,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
         meshCache.set(mesh.bodyId, mirrorMesh(mesh, mesh.bodyId))
       }
     }
+    syncedEpoch = workerResetEpoch()
   }
 
   async function syncScene(op: ModelOp, result: OpResult, filePath?: string): Promise<Record<string, unknown>> {
@@ -335,9 +338,10 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
   const cadExport = defineTool({
     name: 'cad_export',
-    description: 'Export one body as STEP (.step, parametric) or STL (.stl, mesh) to a workspace path, e.g. for sharing or manufacturing.',
+    description:
+      'Export to a workspace path (extension selects format): .step (parametric body), .stl (mesh body), or .dcprt (the native part document — the whole replayable feature history, openable with cad_view).',
     parameters: {
-      target: bodyTarget,
+      target: { type: 'string', description: 'BodyId to export (required for .step/.stl; unused for .dcprt).' },
       path: { type: 'string', required: true, description: 'Destination file path (extension selects format).' },
     },
     output: {
@@ -356,8 +360,29 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     isConcurrencySafe: () => true,
     async execute(args) {
       await restoreOnce()
-      const format = args.path.toLowerCase().endsWith('.stl') ? 'stl' : 'step'
       const resolved = resolveWorkspacePath(args.path, deps.workspaceRoot)
+
+      // .dcprt serializes the whole document on the main thread — no worker
+      // op (that path exports one body's geometry), no entry in the log.
+      if (args.path.toLowerCase().endsWith('.dcprt')) {
+        if (document.doc.ops.length === 0) throw new Error('nothing to export — the modeling document is empty')
+        await writeFile(resolved, JSON.stringify(toDcPrtDocument(document.doc)))
+        const meshes = [...meshCache.values()]
+        const value: Record<string, unknown> = {
+          triangles: meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0),
+          bodies: meshes.length,
+          version: document.doc.version,
+          filePath: resolved,
+        }
+        const sceneUrlBase = deps.ensureSceneRoute()
+        if (sceneUrlBase !== null) {
+          value.sceneUrl = `${sceneUrlBase.replace('/scene', '/bin')}/${document.doc.docId}?v=${document.doc.version}`
+        }
+        return value as never
+      }
+
+      if (args.target === undefined) throw new Error('target is required for .step/.stl exports')
+      const format = args.path.toLowerCase().endsWith('.stl') ? 'stl' : 'step'
       const op: ModelOp = { kind: 'export', target: args.target, format }
       const result = await runModelOp(op)
       if (result.bytes === undefined) throw new Error('export produced no data')

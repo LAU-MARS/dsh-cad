@@ -8,6 +8,7 @@ import { parseOBJ } from './obj.js'
 import { parseDXF } from './dxf.js'
 import { parseSVG } from './svg.js'
 import { parseOcct } from './step.js'
+import { parseDcprt } from './dcprt.js'
 
 function meshBounds(meshes: CadMesh[]): CadScene3D['bounds'] {
   let minX = Infinity
@@ -56,6 +57,10 @@ export async function convert(buffer: Buffer, format: CadFormat, fileName: strin
     case 'iges':
     case 'brep': {
       const meshes = await parseOcct(buffer, format, stem)
+      return { kind: '3d', format, meshes, bounds: meshBounds(meshes), units: 'mm' }
+    }
+    case 'dcprt': {
+      const meshes = await parseDcprt(buffer, stem)
       return { kind: '3d', format, meshes, bounds: meshBounds(meshes), units: 'mm' }
     }
     case 'dxf':

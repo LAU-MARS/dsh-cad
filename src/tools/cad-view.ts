@@ -31,7 +31,7 @@ export function createCadViewTool(deps: CadViewToolDeps): ToolDefinition {
     name: 'cad_view',
     description:
       'Open a CAD file in the interactive viewer embedded in the chat UI. ' +
-      '3D: STL, OBJ, STEP (.step/.stp), IGES (.iges/.igs), BREP. 2D: DXF, SVG. ' +
+      '3D: STL, OBJ, STEP (.step/.stp), IGES (.iges/.igs), BREP, DCPRT (.dcprt native part document). 2D: DXF, SVG. ' +
       'The card shows the geometry (orbit/zoom for 3D, pan/zoom for 2D) plus a geometry summary. ' +
       'Use it whenever the user wants to see, inspect, or verify CAD geometry; the returned summary carries bounds and counts.',
     parameters: {
@@ -87,7 +87,7 @@ export function createCadViewTool(deps: CadViewToolDeps): ToolDefinition {
       const format = detectFormat(name)
       if (format === null) {
         throw new Error(
-          `unsupported CAD format: ${name} — supported extensions are .stl .obj .step .stp .iges .igs .brep .dxf .svg`,
+          `unsupported CAD format: ${name} — supported extensions are .stl .obj .step .stp .iges .igs .brep .dcprt .dxf .svg`,
         )
       }
       const buffer = await loadCadFile(resolved)

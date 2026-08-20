@@ -54,6 +54,7 @@ describe('format detection', () => {
     expect(detectFormat('part.stp')).toBe('step')
     expect(detectFormat('part.igs')).toBe('iges')
     expect(detectFormat('drawing.DXF')).toBe('dxf')
+    expect(detectFormat('bracket.dcprt')).toBe('dcprt')
     expect(detectFormat('noext')).toBeNull()
     expect(detectFormat('file.zip')).toBeNull()
   })

@@ -26,7 +26,7 @@ all-edge fillet as exact OCCT BRep, rendered in the embedded viewer card:
 
 | Capability | Description |
 | --- | --- |
-| 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
+| 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
 | 🏗️ Parametric modeling | Primitives (box/cylinder/sphere/cone/torus), profile extrusion, booleans (fuse/cut/common), all-edge fillet, transforms (translate/rotate/mirror) — exact OCCT BRep, not a mesh approximation |
 | 📐 Geometry measurement | Exact volume (mm³), bounding box, triangle counts, DXF layers |
 | 📤 On-demand export | STEP (parametric) / STL (mesh); files are written only when the user asks |
@@ -75,7 +75,7 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_fillet` | Constant-radius fillet on all sharp edges |
 | `cad_transform` | Translate / Euler rotate / mirror |
 | `cad_volume` | Exact BRep volume (mm³) |
-| `cad_export` | Export STEP / STL to a workspace path |
+| `cad_export` | Export STEP / STL / DCPRT (the native replayable part document) to a workspace path |
 | `cad_delete` | Delete a body |
 
 After every modeling step: **the same viewer card refreshes in place** (stable viewId +
@@ -125,7 +125,7 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
 ## Tests
 
 ```sh
-npm test                             # 26 tests: converters / modeling worker (exact volume assertions) / binary pipeline / document persistence
+npm test                             # 30 tests: converters / modeling worker (exact volume assertions) / DCPRT round-trip / binary pipeline / document persistence
 node test/m0-kernel-check.cjs        # OCCT kernel API smoke test
 node test/route-check.mjs            # JSON scene routing layer
 node test/visual/serve.mjs           # browser card/tab visual verification page (http://127.0.0.1:3987)
@@ -134,8 +134,9 @@ node test/visual/serve.mjs           # browser card/tab visual verification page
 Representative assertions covered: the boolean-punched volume exactly equals the
 analytic value (28429.20 mm³), L-shaped profile extrusion 3000 mm³, volumes and
 bounding-box flips of sphere/cone/torus placed with `at`/`axis`, 8-byte alignment
-of the binary packing, and an STL export round-trip (export → read back by the
-phase-1 parser).
+of the binary packing, an STL export round-trip (export → read back by the
+phase-1 parser), and a DCPRT document round-trip (serialize → replay on the
+OCCT worker → exact bounds).
 
 ## Known Limitations
 

@@ -25,7 +25,7 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP（3D），DXF / SVG（2D），对话内嵌交互卡片（轨道旋转 / 缩放 / 线框 / 平移） |
+| 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP / DCPRT（3D），DXF / SVG（2D），对话内嵌交互卡片（轨道旋转 / 缩放 / 线框 / 平移） |
 | 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
 | 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
 | 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |
@@ -72,7 +72,7 @@ dsh web
 | `cad_fillet` | 全锐边等半径圆角 |
 | `cad_transform` | 平移 / 欧拉旋转 / 镜像 |
 | `cad_volume` | 精确 BRep 体积（mm³） |
-| `cad_export` | 导出 STEP / STL 到工作区路径 |
+| `cad_export` | 导出 STEP / STL / DCPRT（原生可重放零件文档）到工作区路径 |
 | `cad_delete` | 删除 body |
 
 每步建模后：**同一查看器卡片原地刷新**（稳定 viewId + 版本化 URL），
@@ -117,7 +117,7 @@ cad_view(path)                        建模工具（cad_create_prim 等）
 ## 测试
 
 ```sh
-npm test                             # 26 项：转换器 / 建模 worker（体积精确断言）/ 二进制管道 / 文档持久化
+npm test                             # 30 项：转换器 / 建模 worker（体积精确断言）/ DCPRT 往返 / 二进制管道 / 文档持久化
 node test/m0-kernel-check.cjs        # OCCT 内核 API 冒烟
 node test/route-check.mjs            # JSON 场景路由层
 node test/visual/serve.mjs           # 浏览器卡片/页签视觉验证页（http://127.0.0.1:3987）
@@ -125,7 +125,8 @@ node test/visual/serve.mjs           # 浏览器卡片/页签视觉验证页（h
 
 覆盖的代表性断言：布尔打孔体积精确等于解析值（28429.20 mm³）、L 型轮廓拉伸
 3000 mm³、球/锥/环带 `at`/`axis` 定位的体积与包围盒翻转、二进制打包 8 字节对齐、
-STL 导出往返（导出 → 一期解析器读回）。
+STL 导出往返（导出 → 一期解析器读回），以及 DCPRT 文档往返
+（序列化 → OCCT worker 重放 → 精确包围盒）。
 
 ## 已知限制
 
