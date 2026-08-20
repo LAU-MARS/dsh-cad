@@ -5,9 +5,10 @@
 import { createServer } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { convert } from '../../lib/convert/index.js'
 
-const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '../..')
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..')
 const visualDir = path.join(root, 'test', 'visual')
 
 async function loadScenes() {
