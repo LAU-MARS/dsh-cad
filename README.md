@@ -33,6 +33,8 @@ all-edge fillet as exact OCCT BRep, rendered in the embedded viewer card:
 | 🖥️ Persistent 3D view panel | A permanent "3D" tab in the session tab bar: XYZ axes + grid (Z-up) when empty, **tracks the latest model in real time** while modeling |
 | ⚡ Zero-copy render pipeline | worker mesh → in-memory binary → three.js typed arrays; zero base64 / zero intermediate files / zero per-step disk writes |
 | 💾 Modeling document persistence | Operation log (JSON) + debounced disk mirror; automatically replayed to restore state after a process restart |
+| 🖼️ Image → profile | PNG sketch/screenshot → Otsu binarization → contour tracing → extrusion-ready polygon (`cad_image_profile`) |
+| 🔌 FreeCAD executor | Run the same op family on an external FreeCAD console (STEP in/out); requires a local FreeCAD install |
 
 ## Installation (dev mode)
 
@@ -77,6 +79,8 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_volume` | Exact BRep volume (mm³) |
 | `cad_export` | Export STEP / STL / DCPRT (the native replayable part document) to a workspace path |
 | `cad_delete` | Delete a body |
+| `cad_freecad` | Run an op program on an external FreeCAD executor (optional STEP input / export) |
+| `cad_image_profile` | PNG → contours → extrusion-ready polygon points |
 
 After every modeling step: **the same viewer card refreshes in place** (stable viewId +
 versioned URL), and the "3D" tab tracks the latest model in real time.
@@ -90,7 +94,7 @@ executors for the same tool family, planned for future support:
 | Connector | Suite | Status |
 | --- | --- | --- |
 | **Built-in kernel** | CAD modeling kernel based on OCCT + WebGL, runs in the browser — zero install | ✅ Built-in |
-| FreeCAD | open-source parametric suite — natural local executor via its Python API | 🔜 Coming soon |
+| FreeCAD | open-source parametric suite — natural local executor via its Python API | ✅ Available (needs local install) |
 | SolidWorks | Dassault Systèmes industry-standard 3D CAD | 🚧 Planned |
 | Fusion 360 | Autodesk cloud-connected CAD/CAM | 🚧 Planned |
 | Onshape | cloud-native SaaS CAD, fully in the browser | 🚧 Planned |
@@ -125,7 +129,7 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
 ## Tests
 
 ```sh
-npm test                             # 30 tests: converters / modeling worker (exact volume assertions) / DCPRT round-trip / binary pipeline / document persistence
+npm test                             # 41 tests: converters / modeling worker (exact volume assertions) / DCPRT round-trip / FreeCAD executor / image profiles / binary pipeline
 node test/m0-kernel-check.cjs        # OCCT kernel API smoke test
 node test/route-check.mjs            # JSON scene routing layer
 node test/visual/serve.mjs           # browser card/tab visual verification page (http://127.0.0.1:3987)

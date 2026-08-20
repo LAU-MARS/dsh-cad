@@ -39,6 +39,8 @@ const CAD_TOOL_KEYS = [
   'cad_export',
   'cad_delete',
   'cad_volume',
+  'cad_freecad',
+  'cad_image_profile',
 ]
 
 /** Open the right details panel once the layout store is wired (startup default). */

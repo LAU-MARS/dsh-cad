@@ -1,4 +1,4 @@
-/** FreeCAD — first external executor planned. */
+/** FreeCAD — external executor, live via the local console binary. */
 import type { CadConnector } from './types.js'
 
 export const FREECAD_CONNECTOR: CadConnector = {
@@ -6,6 +6,6 @@ export const FREECAD_CONNECTOR: CadConnector = {
   label: 'FreeCAD',
   vendor: 'Open-source community',
   language: 'python',
-  status: 'coming-soon',
-  binding: 'Python console API over a local FreeCAD process',
+  status: 'available',
+  binding: 'Python bridge over a local FreeCAD console (freecadcmd) — requires FreeCAD installed (or FREECAD_BIN set)',
 }

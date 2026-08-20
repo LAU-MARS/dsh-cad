@@ -15,6 +15,8 @@ import type { SceneRoute } from './routes.js'
 import { createCadViewTool } from './tools/cad-view.js'
 import { createCadInfoTool } from './tools/cad-info.js'
 import { createModelTools } from './tools/cad-model.js'
+import { createFreeCadTool } from './tools/cad-freecad.js'
+import { createCadImageTool } from './tools/cad-image.js'
 
 export const name = 'dsh-cad'
 
@@ -49,11 +51,15 @@ export function apply(ctx: Context, config: Config = {}): void {
   const cadView = createCadViewTool({ store, workspaceRoot, ensureSceneRoute })
   const cadInfo = createCadInfoTool({ workspaceRoot })
   const modelTools = createModelTools({ store: binStore, workspaceRoot, ensureSceneRoute })
+  const cadFreeCad = createFreeCadTool({ store: binStore, workspaceRoot, ensureSceneRoute })
+  const cadImage = createCadImageTool({ store, workspaceRoot, ensureSceneRoute })
 
   const disposers = [
     ctx.tools.register(cadView),
     ctx.tools.register(cadInfo),
     ...modelTools.map((tool) => ctx.tools.register(tool)),
+    ctx.tools.register(cadFreeCad),
+    ctx.tools.register(cadImage),
   ]
 
   ctx.effect(() => {

@@ -32,6 +32,8 @@
 | 🖥️ 常驻 3D 显示区 | 会话页签栏常驻 "3D" 页签：无模型时显示 XYZ 坐标轴 + 网格（Z-up），建模时**实时跟踪最新模型** |
 | ⚡ 直通渲染管道 | worker 网格 → 内存二进制 → three.js typed-array，零 base64 / 零中间文件 / 零每步落盘 |
 | 💾 建模文档持久化 | 操作日志（JSON）+ 防抖磁盘镜像，进程重启后自动重放恢复 |
+| 🖼️ 图片 → 轮廓 | PNG 草图/截图 → Otsu 二值化 → 轮廓追踪 → 可直接拉伸的多边形（`cad_image_profile`） |
+| 🔌 FreeCAD 执行器 | 在外部 FreeCAD 控制台运行同一 op 族（STEP 输入/输出闭环）；需本地安装 |
 
 ## 安装（开发模式）
 
@@ -74,6 +76,8 @@ dsh web
 | `cad_volume` | 精确 BRep 体积（mm³） |
 | `cad_export` | 导出 STEP / STL / DCPRT（原生可重放零件文档）到工作区路径 |
 | `cad_delete` | 删除 body |
+| `cad_freecad` | 在外部 FreeCAD 执行器上运行 op 程序（可选 STEP 输入/导出） |
+| `cad_image_profile` | PNG → 轮廓 → 可直接拉伸的多边形点集 |
 
 每步建模后：**同一查看器卡片原地刷新**（稳定 viewId + 版本化 URL），
 "3D" 页签实时跟踪最新模型。
@@ -86,7 +90,7 @@ dsh web
 | 连接器 | 套件 | 状态 |
 | --- | --- | --- |
 | **内置内核** | 基于 OCCT + WebGL 的 CAD 建模内核，浏览器内运行——零安装 | ✅ 内置 |
-| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器 | 🔜 即将支持 |
+| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器 | ✅ 可用（需本地安装） |
 | SolidWorks | 达索系统的主流 3D CAD | 🚧 规划中 |
 | Fusion 360 | Autodesk 云端 CAD/CAM | 🚧 规划中 |
 | Onshape | 云原生 SaaS CAD，完全在浏览器中 | 🚧 规划中 |
@@ -117,7 +121,7 @@ cad_view(path)                        建模工具（cad_create_prim 等）
 ## 测试
 
 ```sh
-npm test                             # 30 项：转换器 / 建模 worker（体积精确断言）/ DCPRT 往返 / 二进制管道 / 文档持久化
+npm test                             # 41 项：转换器 / 建模 worker（体积精确断言）/ DCPRT 往返 / FreeCAD 执行器 / 图片轮廓 / 二进制管道 / 文档持久化
 node test/m0-kernel-check.cjs        # OCCT 内核 API 冒烟
 node test/route-check.mjs            # JSON 场景路由层
 node test/visual/serve.mjs           # 浏览器卡片/页签视觉验证页（http://127.0.0.1:3987）
