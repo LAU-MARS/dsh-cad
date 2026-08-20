@@ -120,6 +120,12 @@ phase-1 parser).
 - The host reads CAD files via node:fs (the platform fs service supports UTF-8 text
   only and cannot carry binary data)
 
+## Contributors
+
+Auto-generated from the commit history — thanks to everyone who has contributed!
+
+[![Contributors](https://contrib.rocks/image?repo=LAU-MARS/dsh-cad)](https://github.com/LAU-MARS/dsh-cad/graphs/contributors)
+
 ## License
 
 MIT

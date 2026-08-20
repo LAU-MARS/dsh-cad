@@ -106,6 +106,12 @@ STL 导出往返（导出 → 一期解析器读回）。
   故常驻显示区以 "3D" 视图页签提供（list 槽，官方组合方式）
 - 宿主读取 CAD 文件使用 node:fs（平台 fs 服务仅支持 UTF-8 文本，无法承载二进制）
 
+## 贡献者
+
+由提交历史自动生成，感谢每一位贡献者！
+
+[![Contributors](https://contrib.rocks/image?repo=LAU-MARS/dsh-cad)](https://github.com/LAU-MARS/dsh-cad/graphs/contributors)
+
 ## License
 
 MIT
