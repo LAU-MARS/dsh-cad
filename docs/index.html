@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>dsh-cad — CAD Plugin for DeepSeek Harness</title>
+<meta name="description" content="An embedded 3D/2D CAD viewer and a native parametric modeling tool family (OCCT kernel) for DeepSeek Harness — model while you watch." />
+<meta property="og:title" content="dsh-cad — CAD Plugin for DeepSeek Harness" />
+<meta property="og:description" content="Embedded 3D/2D CAD viewer + native parametric modeling (OCCT) for DeepSeek Harness." />
+<meta property="og:image" content="img/bracket-preview.png" />
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%234D6BFE'/%3E%3Cpath d='M9 22V11.5l7 5.5 7-5.5V22' stroke='%23fff' stroke-width='2.6' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=Host+Grotesk:wght@500;600;700&family=Fragment+Mono&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --blue: #4d6bfe;
+    --blue-hover: #4176e6;
+    --blue-soft: #eef1ff;
+    --ink: #0f0f0f;
+    --ink-2: #5c6167;
+    --ink-3: #8691a1;
+    --bg: #ffffff;
+    --bg-soft: #f9f8f8;
+    --line: #e5e7eb;
+    --code-bg: #101318;
+    --code-ink: #e6e8eb;
+    --code-key: #73a3d2;
+    --code-str: #6799fe;
+    --code-dim: #9ca3af;
+    --radius: 12px;
+    --pill: 9999px;
+    --font-body: "DM Sans", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-display: "Host Grotesk", "DM Sans", -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+    --font-mono: "Fragment Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body { font-family: var(--font-body); color: var(--ink); background: var(--bg); line-height: 1.65; font-size: 16px; -webkit-font-smoothing: antialiased; }
+  a { color: inherit; text-decoration: none; }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+  section { padding: 72px 0; }
+  section.soft { background: var(--bg-soft); }
+
+  /* ── nav ─────────────────────────────────────────────── */
+  header { position: sticky; top: 0; z-index: 50; background: rgba(255,255,255,.86); backdrop-filter: blur(10px); border-bottom: 1px solid var(--line); }
+  .nav { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-display); font-weight: 600; font-size: 17px; letter-spacing: -.01em; }
+  .brand .mark { width: 26px; height: 26px; border-radius: 7px; background: var(--blue); display: inline-flex; align-items: center; justify-content: center; }
+  .brand .mark svg { width: 17px; height: 17px; }
+  .nav-links { display: flex; align-items: center; gap: 20px; font-size: 14px; color: var(--ink-2); }
+  .nav-links .gh { display: inline-flex; align-items: center; gap: 7px; color: var(--ink); font-weight: 500; }
+  .lang-btn { border: 1px solid var(--line); background: #fff; border-radius: var(--pill); padding: 5px 14px; font: 500 13px var(--font-body); color: var(--ink-2); cursor: pointer; transition: all .15s; }
+  .lang-btn:hover { border-color: var(--blue); color: var(--blue); }
+
+  /* ── hero ────────────────────────────────────────────── */
+  .hero { padding: 96px 0 72px; }
+  .eyebrow { display: inline-block; font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--blue); background: var(--blue-soft); border-radius: var(--pill); padding: 4px 14px; margin-bottom: 22px; }
+  h1 { font-family: var(--font-display); font-weight: 600; font-size: clamp(38px, 6vw, 62px); line-height: 1.06; letter-spacing: -.025em; max-width: 15ch; }
+  .hero .sub { margin: 22px 0 32px; max-width: 60ch; color: var(--ink-2); font-size: 17.5px; }
+  .cta-row { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 56px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; border-radius: var(--pill); padding: 12px 26px; font: 500 15px var(--font-body); cursor: pointer; transition: all .15s; border: 1px solid transparent; }
+  .btn-primary { background: var(--blue); color: #fff; box-shadow: 0 4px 14px rgba(77,107,254,.28); }
+  .btn-primary:hover { background: var(--blue-hover); transform: translateY(-1px); }
+  .btn-ghost { border-color: var(--line); color: var(--ink); background: #fff; }
+  .btn-ghost:hover { border-color: var(--ink-3); }
+  .hero-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; align-items: center; }
+  @media (max-width: 860px) { .hero-grid { grid-template-columns: 1fr; } }
+
+  /* mac-style code window */
+  .code-card { background: var(--code-bg); border-radius: var(--radius); overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,.4), 0 0 0 1px rgba(255,255,255,.06); }
+  .code-card .bar { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .code-card .dot { width: 11px; height: 11px; border-radius: 50%; }
+  .dot.r { background: #ff5f57; } .dot.y { background: #febc2e; } .dot.g { background: #28c840; }
+  .code-card .fname { margin-left: 8px; font: 12px var(--font-mono); color: var(--code-dim); }
+  .code-card pre { padding: 18px 20px; overflow-x: auto; font: 13.5px/1.75 var(--font-mono); color: var(--code-ink); }
+  .code-card pre .c { color: var(--code-dim); }
+  .code-card pre .k { color: var(--code-key); }
+  .code-card pre .s { color: var(--code-str); }
+
+  /* ── section scaffolding ─────────────────────────────── */
+  .sec-head { max-width: 640px; margin-bottom: 40px; }
+  .sec-eyebrow { font-size: 12px; font-weight: 500; text-transform: uppercase; letter-spacing: .08em; color: var(--ink-3); margin-bottom: 12px; }
+  h2 { font-family: var(--font-display); font-weight: 600; font-size: clamp(28px, 4vw, 40px); letter-spacing: -.02em; line-height: 1.15; }
+  .sec-sub { margin-top: 14px; color: var(--ink-2); }
+
+  /* preview figure */
+  .figure { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; box-shadow: 0 12px 32px rgba(0,0,0,.08); }
+  .figure img { display: block; width: 100%; border-radius: 8px; }
+  .figure figcaption { padding: 12px 8px 6px; font-size: 13.5px; color: var(--ink-3); }
+
+  /* feature cards */
+  .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 20px; }
+  @media (max-width: 960px) { .grid-4 { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 860px) { .grid-3 { grid-template-columns: 1fr; } }
+  @media (max-width: 560px) { .grid-4 { grid-template-columns: 1fr; } }
+  .card { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); padding: 26px 24px; transition: all .18s; }
+  .card:hover { box-shadow: 0 12px 32px rgba(0,0,0,.08); border-color: #d5d9df; transform: translateY(-2px); }
+  .card .ico { font-size: 26px; line-height: 1; margin-bottom: 14px; display: block; }
+  .card h3 { font-family: var(--font-display); font-weight: 600; font-size: 17.5px; letter-spacing: -.01em; margin-bottom: 8px; }
+  .card p { font-size: 14.5px; color: var(--ink-2); }
+
+  /* tools table */
+  .tools { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  @media (max-width: 760px) { .tools { grid-template-columns: 1fr; } }
+  .tool { display: flex; gap: 14px; align-items: baseline; background: #fff; border: 1px solid var(--line); border-radius: 10px; padding: 14px 18px; }
+  .tool code { font: 13px var(--font-mono); color: var(--blue); white-space: nowrap; }
+  .tool span { font-size: 14px; color: var(--ink-2); }
+
+  /* get started */
+  .start-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 860px) { .start-grid { grid-template-columns: 1fr; } }
+  .start-grid h3 { font-family: var(--font-display); font-size: 16px; margin-bottom: 12px; letter-spacing: -.01em; }
+
+  /* footer */
+  footer { border-top: 1px solid var(--line); padding: 36px 0 44px; color: var(--ink-3); font-size: 14px; }
+  .foot { display: flex; flex-wrap: wrap; gap: 16px; justify-content: space-between; align-items: center; }
+  .foot .links { display: flex; gap: 20px; }
+  .foot a:hover { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap nav">
+    <a class="brand" href="#">
+      <span class="mark"><svg viewBox="0 0 32 32" fill="none"><path d="M9 23V11l7 5.5L23 11v12" stroke="#fff" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+      dsh-cad
+    </a>
+    <nav class="nav-links">
+      <a href="https://github.com/LAU-MARS/dsh-cad" target="_blank" rel="noopener" class="gh">
+        <svg width="17" height="17" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+        <span data-en="GitHub" data-zh="GitHub">GitHub</span>
+      </a>
+      <button class="lang-btn" id="langToggle" onclick="toggleLang()">中文</button>
+    </nav>
+  </div>
+</header>
+
+<!-- ── hero ─────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="wrap">
+    <span class="eyebrow" data-en="dsh plugin · developer preview" data-zh="dsh 插件 · 开发者预览">dsh plugin · developer preview</span>
+    <h1 data-en="Model while you watch." data-zh="边建边看。">Model while you watch.</h1>
+    <p class="sub" data-en="An embedded 3D/2D CAD viewer and a native parametric modeling tool family (OCCT kernel) for DeepSeek Harness — the agent builds exact BRep geometry step by step, live in the conversation." data-zh="为 DeepSeek Harness 提供的内嵌 3D/2D CAD 查看器与原生参数化建模工具族（OCCT 内核）——agent 在对话中一步步构建精确 BRep 几何，实时可见。">An embedded 3D/2D CAD viewer and a native parametric modeling tool family (OCCT kernel) for DeepSeek Harness — the agent builds exact BRep geometry step by step, live in the conversation.</p>
+    <div class="cta-row">
+      <a class="btn btn-primary" href="https://github.com/LAU-MARS/dsh-cad" target="_blank" rel="noopener" data-en="View on GitHub" data-zh="在 GitHub 查看">View on GitHub</a>
+      <a class="btn btn-ghost" href="https://github.com/LAU-MARS/dsh-cad#readme" target="_blank" rel="noopener" data-en="Read the docs" data-zh="阅读文档">Read the docs</a>
+    </div>
+    <div class="hero-grid">
+      <figure class="figure">
+        <img src="img/bracket-preview.png" alt="L-bracket modeled live in the dsh-cad viewer card" />
+        <figcaption data-en="An L-bracket modeled live in the chat: profile extrusion, through holes and all-edge fillet — exact OCCT BRep, 2,030 triangles, volume verified to 76,678.69 mm³." data-zh="对话中实时建模的 L 型支架：轮廓拉伸、通孔与全边圆角——OCCT 精确 BRep，2,030 三角形，体积精确校验 76,678.69 mm³。">An L-bracket modeled live in the chat: profile extrusion, through holes and all-edge fillet — exact OCCT BRep, 2,030 triangles, volume verified to 76,678.69 mm³.</figcaption>
+      </figure>
+      <div class="code-card">
+        <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">quick-start.sh</span></div>
+<pre><span class="c"># clone &amp; build (Node ≥ 22)</span>
+<span class="k">git clone</span> https://github.com/LAU-MARS/dsh-cad.git
+<span class="k">cd</span> dsh-cad &amp;&amp; npm install &amp;&amp; npm run build &amp;&amp; npm test
+
+<span class="c"># register as a dsh web plugin</span>
+<span class="k">npm i -g</span> @deepseek-ai/dsh pnpm
+<span class="k">dsh plugin</span> --profile web add /path/to/dsh-cad
+<span class="k">dsh web</span>   <span class="c"># then just ask:</span>
+<span class="c"># "model a 100×70 L-bracket, two ⌀9 holes,</span>
+<span class="c">#  one ⌀12 mounting hole, fillet R2"</span></pre>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── features ─────────────────────────────────────────── -->
+<section class="soft">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-en="Capabilities" data-zh="能力">Capabilities</div>
+      <h2 data-en="A full CAD workbench, in the conversation." data-zh="把完整 CAD 工作台装进对话。">A full CAD workbench, in the conversation.</h2>
+      <p class="sec-sub" data-en="View, measure, model and export — every step stays exact BRep on the OCCT kernel, never a mesh approximation." data-zh="查看、测量、建模、导出——每一步都是 OCCT 内核上的精确 BRep，而非网格近似。">View, measure, model and export — every step stays exact BRep on the OCCT kernel, never a mesh approximation.</p>
+    </div>
+    <div class="grid-4">
+      <div class="card"><span class="ico">🔍</span><h3 data-en="CAD viewing" data-zh="CAD 查看">CAD viewing</h3><p data-en="STL / OBJ / STEP / IGES / BREP in 3D, DXF / SVG in 2D — interactive orbit / zoom / wireframe cards right inside the chat." data-zh="3D 支持 STL / OBJ / STEP / IGES / BREP，2D 支持 DXF / SVG——对话内嵌交互卡片，轨道旋转 / 缩放 / 线框。">STL / OBJ / STEP / IGES / BREP in 3D, DXF / SVG in 2D — interactive orbit / zoom / wireframe cards right inside the chat.</p></div>
+      <div class="card"><span class="ico">🏗️</span><h3 data-en="Parametric modeling" data-zh="参数化建模">Parametric modeling</h3><p data-en="Primitives, profile extrusion, booleans (fuse / cut / common), all-edge fillets and transforms — mm, Z-up, exact axis-angle placement." data-zh="基本体、轮廓拉伸、布尔（fuse / cut / common）、全边圆角与变换——mm 单位、Z-up、精确轴角定位。">Primitives, profile extrusion, booleans (fuse / cut / common), all-edge fillets and transforms — mm, Z-up, exact axis-angle placement.</p></div>
+      <div class="card"><span class="ico">🖥️</span><h3 data-en="Resident “3D” tab" data-zh="常驻 “3D” 页签">Resident “3D” tab</h3><p data-en="A permanent tab beside the chat: XYZ axes + grid when empty, then tracking the latest model in real time as the agent works." data-zh="对话旁的常驻页签：空场景显示 XYZ 坐标轴与网格，建模时实时跟踪最新模型。">A permanent tab beside the chat: XYZ axes + grid when empty, then tracking the latest model in real time as the agent works.</p></div>
+      <div class="card"><span class="ico">⚡</span><h3 data-en="Zero-copy pipeline" data-zh="直通渲染管道">Zero-copy pipeline</h3><p data-en="Worker meshes → in-memory binary → three.js typed arrays. No base64, no intermediate files, no per-step disk writes; documents persist and replay on restart." data-zh="worker 网格 → 内存二进制 → three.js typed array。零 base64、零中间文件、零每步落盘；文档持久化，重启自动重放恢复。">Worker meshes → in-memory binary → three.js typed arrays. No base64, no intermediate files, no per-step disk writes; documents persist and replay on restart.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── tool family ──────────────────────────────────────── -->
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-en="The tool family" data-zh="工具族">The tool family</div>
+      <h2 data-en="Ten tools the agent can call." data-zh="agent 可调用的十个工具。">Ten tools the agent can call.</h2>
+      <p class="sec-sub" data-en="Every modeling step refreshes the same viewer card in place — stable viewId, versioned URL — while the 3D tab keeps tracking." data-zh="每步建模都在同一查看器卡片原地刷新（稳定 viewId + 版本化 URL），3D 页签同步跟踪。">Every modeling step refreshes the same viewer card in place — stable viewId, versioned URL — while the 3D tab keeps tracking.</p>
+    </div>
+    <div class="tools">
+      <div class="tool"><code>cad_view</code><span data-en="open a CAD file, render an interactive card" data-zh="打开 CAD 文件，渲染交互卡片">open a CAD file, render an interactive card</span></div>
+      <div class="tool"><code>cad_info</code><span data-en="read-only geometry metadata" data-zh="只读几何元信息">read-only geometry metadata</span></div>
+      <div class="tool"><code>cad_create_prim</code><span data-en="box / cylinder / sphere / cone / torus" data-zh="box / cylinder / sphere / cone / torus">box / cylinder / sphere / cone / torus</span></div>
+      <div class="tool"><code>cad_extrude_profile</code><span data-en="closed XY polygon → solid along +Z" data-zh="XY 闭合多边形沿 +Z 拉伸成实体">closed XY polygon → solid along +Z</span></div>
+      <div class="tool"><code>cad_boolean</code><span data-en="fuse / cut / common" data-zh="fuse / cut / common">fuse / cut / common</span></div>
+      <div class="tool"><code>cad_fillet</code><span data-en="constant-radius fillet on all sharp edges" data-zh="全锐边等半径圆角">constant-radius fillet on all sharp edges</span></div>
+      <div class="tool"><code>cad_transform</code><span data-en="translate / Euler rotate / mirror" data-zh="平移 / 欧拉旋转 / 镜像">translate / Euler rotate / mirror</span></div>
+      <div class="tool"><code>cad_volume</code><span data-en="exact BRep volume (mm³)" data-zh="精确 BRep 体积（mm³）">exact BRep volume (mm³)</span></div>
+      <div class="tool"><code>cad_export</code><span data-en="STEP / STL to a workspace path" data-zh="导出 STEP / STL 到工作区路径">STEP / STL to a workspace path</span></div>
+      <div class="tool"><code>cad_delete</code><span data-en="delete a body" data-zh="删除 body">delete a body</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- ── get started ──────────────────────────────────────── -->
+<section class="soft">
+  <div class="wrap">
+    <div class="sec-head">
+      <div class="sec-eyebrow" data-en="Get started" data-zh="开始使用">Get started</div>
+      <h2 data-en="Try it in two minutes." data-zh="两分钟即可上手。">Try it in two minutes.</h2>
+    </div>
+    <div class="start-grid">
+      <div>
+        <h3 data-en="1 · Build the plugin" data-zh="1 · 构建插件">1 · Build the plugin</h3>
+        <div class="code-card">
+          <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
+<pre><span class="k">git clone</span> https://github.com/LAU-MARS/dsh-cad.git
+<span class="k">cd</span> dsh-cad
+npm install &amp;&amp; npm run build &amp;&amp; npm test</pre>
+        </div>
+      </div>
+      <div>
+        <h3 data-en="2 · Register &amp; launch" data-zh="2 · 注册并启动">2 · Register &amp; launch</h3>
+        <div class="code-card">
+          <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
+<pre><span class="k">npm i -g</span> @deepseek-ai/dsh pnpm  <span class="c"># Node ≥ 22</span>
+<span class="k">dsh web</span>                            <span class="c"># init profile, Ctrl-C</span>
+<span class="k">dsh plugin</span> --profile web add /path/to/dsh-cad
+<span class="k">dsh web</span>   <span class="c"># set DEEPSEEK_API_KEY, then chat</span></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ── footer ───────────────────────────────────────────── -->
+<footer>
+  <div class="wrap foot">
+    <span data-en="Open source · MIT · © 2026 dsh-cad contributors" data-zh="开源 · MIT · © 2026 dsh-cad 贡献者">Open source · MIT · © 2026 dsh-cad contributors</span>
+    <span class="links">
+      <a href="https://github.com/LAU-MARS/dsh-cad" target="_blank" rel="noopener">GitHub</a>
+      <a href="https://github.com/deepseek-ai/deepseek-harness" target="_blank" rel="noopener" data-en="DeepSeek Harness" data-zh="DeepSeek Harness">DeepSeek Harness</a>
+    </span>
+  </div>
+</footer>
+
+<script>
+  var titles = { en: "dsh-cad — CAD Plugin for DeepSeek Harness", zh: "dsh-cad — DeepSeek Harness 的 CAD 插件" };
+  function applyLang(lang) {
+    document.documentElement.lang = lang === 'zh' ? 'zh-CN' : 'en';
+    document.title = titles[lang];
+    document.querySelectorAll('[data-en]').forEach(function (el) {
+      var t = lang === 'zh' ? el.getAttribute('data-zh') : el.getAttribute('data-en');
+      if (t !== null) el.textContent = t;
+    });
+    document.getElementById('langToggle').textContent = lang === 'zh' ? 'EN' : '中文';
+    try { localStorage.setItem('dsh-cad-lang', lang); } catch (e) {}
+  }
+  function toggleLang() {
+    var cur = document.documentElement.lang === 'zh-CN' ? 'zh' : 'en';
+    applyLang(cur === 'zh' ? 'en' : 'zh');
+  }
+  var saved = 'en';
+  try { saved = localStorage.getItem('dsh-cad-lang') || 'en'; } catch (e) {}
+  if (saved === 'zh') applyLang('zh');
+</script>
+</body>
+</html>
