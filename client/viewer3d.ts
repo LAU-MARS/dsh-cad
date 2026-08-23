@@ -8,10 +8,22 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { decodeF32, decodeU32 } from './decode.js'
+import { ViewCube } from './viewcube.js'
+import { PickingController } from './picking.js'
+import { demoBracketGeometry, DEMO_BOUNDS } from './demo-model.js'
 import type { CadScene3D, CadMesh } from './scene-types.js'
 
+/** CAD render modes: shaded faces with feature edges (default), faces only,
+ *  or full wireframe. */
+export type RenderMode = 'shaded-edges' | 'shaded' | 'wireframe'
+
+/** Feature-edge threshold in degrees — below it, smooth surfaces stay clean. */
+const EDGE_ANGLE = 25
+
 export interface Viewer3DHandle {
+  /** Legacy shortcut: true → wireframe, false → shaded-edges. */
   setWireframe(enabled: boolean): void
+  setRenderMode(mode: RenderMode): void
   resetView(): void
   dispose(): void
 }
@@ -133,6 +145,11 @@ function disposeObjects(objects: THREE.Object3D[]): void {
         if (Array.isArray(material)) material.forEach((entry) => entry.dispose())
         else material?.dispose()
       }
+      const line = child as THREE.LineSegments
+      if (line.isLineSegments) {
+        line.geometry?.dispose()
+        line.material?.dispose()
+      }
       const sprite = child as THREE.Sprite
       if (sprite.isSprite) {
         sprite.material.map?.dispose()
@@ -142,61 +159,153 @@ function disposeObjects(objects: THREE.Object3D[]): void {
   }
 }
 
+// ── render modes (faces / feature edges / wireframe) ────────────────────────
+
+/** Lazily attach a feature-edge overlay to a mesh (computed once per mesh). */
+function ensureMeshEdges(mesh: THREE.Mesh): THREE.LineSegments | undefined {
+  const existing = mesh.userData.edges
+  if (existing !== undefined) return existing
+  const geometry = mesh.geometry as THREE.BufferGeometry | undefined
+  if (geometry === undefined) return undefined
+  // Push faces slightly back so edge lines win the depth test.
+  const material = mesh.material as THREE.MeshStandardMaterial
+  material.polygonOffset = true
+  material.polygonOffsetFactor = 1
+  material.polygonOffsetUnits = 1
+  const edges = new THREE.LineSegments(
+    new THREE.EdgesGeometry(geometry, EDGE_ANGLE),
+    new THREE.LineBasicMaterial({ color: 0x33404f, transparent: true, opacity: 0.9 }),
+  )
+  mesh.add(edges)
+  mesh.userData.edges = edges
+  return edges
+}
+
+/** Apply a render mode to every mesh under root. */
+function applyRenderMode(root: THREE.Object3D, mode: RenderMode): void {
+  root.traverse((child) => {
+    const mesh = child as THREE.Mesh
+    if (!mesh.isMesh) return
+    const material = mesh.material as THREE.MeshStandardMaterial
+    material.wireframe = mode === 'wireframe'
+    const edges = mode === 'shaded-edges' ? ensureMeshEdges(mesh) : (mesh.userData.edges as THREE.LineSegments | undefined)
+    if (edges !== undefined) edges.visible = mode === 'shaded-edges'
+  })
+}
+
 /** Build one Three.js mesh; positions/normals/indices may be base64 or
- *  already-decoded typed arrays (the binary transport path). */
-function buildMesh(mesh: CadMesh | { name: string; color?: number; positions: Float32Array; normals?: Float32Array; indices: Uint32Array }): THREE.Mesh {
-  const geometry = new THREE.BufferGeometry()
-  const positions = typeof mesh.positions === 'string' ? decodeF32(mesh.positions) : mesh.positions
-  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-  if (mesh.normals !== undefined) {
-    const normals = typeof mesh.normals === 'string' ? decodeF32(mesh.normals) : mesh.normals
-    geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
-  } else {
-    geometry.computeVertexNormals()
-  }
-  const indices = typeof mesh.indices === 'string' ? decodeU32(mesh.indices) : mesh.indices
-  geometry.setIndex(new THREE.BufferAttribute(indices, 1))
-  const color = mesh.color === undefined ? 0x9fb4c7 : mesh.color
+ *  already-decoded typed arrays (the binary transport path), or a ready-made
+ *  geometry (the built-in demo part). */
+function buildMesh(mesh: CadMesh | { name: string; color?: number; positions: Float32Array; normals?: Float32Array; indices: Uint32Array } | { name: string; color?: number; geometry: THREE.BufferGeometry }): THREE.Mesh {
+  const geometry = 'geometry' in mesh
+    ? mesh.geometry
+    : (() => {
+        const geometry = new THREE.BufferGeometry()
+        const positions = typeof (mesh as { positions: unknown }).positions === 'string' ? decodeF32((mesh as { positions: string }).positions) : (mesh as { positions: Float32Array }).positions
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+        if ((mesh as { normals?: unknown }).normals !== undefined) {
+          const normals = typeof (mesh as { normals?: unknown }).normals === 'string' ? decodeF32((mesh as { normals: string }).normals) : (mesh as { normals: Float32Array }).normals
+          geometry.setAttribute('normal', new THREE.BufferAttribute(normals, 3))
+        } else {
+          geometry.computeVertexNormals()
+        }
+        const indices = typeof (mesh as { indices: unknown }).indices === 'string' ? decodeU32((mesh as { indices: string }).indices) : (mesh as { indices: Uint32Array }).indices
+        geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+        return geometry
+      })()
+  const color = (mesh as { color?: number }).color === undefined ? 0x9fb4c7 : (mesh as { color?: number }).color
   const material = new THREE.MeshStandardMaterial({
     color,
     metalness: 0.15,
     roughness: 0.55,
-    flatShading: mesh.normals === undefined,
+    flatShading: (mesh as { normals?: unknown }).normals === undefined,
     side: THREE.DoubleSide,
   })
   return new THREE.Mesh(geometry, material)
 }
 
-/** Mount an always-on empty CAD viewport: grid + labeled XYZ triad, slowly rotating. */
-export function mountEmptyViewer3D(container: HTMLElement): Viewer3DHandle {
-  const shell = mountShell(container, { autoRotate: true })
+/**
+ * The CAD editor viewport: the demo example L-bracket (face + edge rendering)
+ * loaded at startup, on the always-on ground grid + labeled XYZ triad. It is
+ * the editor surface before any CAD tool produces a scene.
+ */
+export function mountCadEditor3D(container: HTMLElement): Viewer3DHandle {
+  const shell = mountShell(container)
   const scene = new THREE.Scene()
-  const scale = 40 // mm-scale reference frame until geometry arrives
-  const furniture = addSceneFurniture(scene, scale)
 
-  const place = (): void => {
-    const distance = scale * 2.4
-    shell.camera.position.set(distance * 0.6, distance * 0.5, distance * 0.55)
-    shell.controls.target.set(0, 0, 0)
+  const cad = new THREE.Group()
+  cad.add(buildMesh({ name: 'demo-bracket', geometry: demoBracketGeometry() }))
+
+  const bounds = DEMO_BOUNDS
+  const size = new THREE.Vector3(
+    bounds.max.x - bounds.min.x,
+    bounds.max.y - bounds.min.y,
+    bounds.max.z - bounds.min.z,
+  )
+  const center = new THREE.Vector3(
+    (bounds.max.x + bounds.min.x) / 2,
+    (bounds.max.y + bounds.min.y) / 2,
+    (bounds.max.z + bounds.min.z) / 2,
+  )
+  const maxDim = Math.max(size.x, size.y, size.z, 1e-6)
+
+  scene.add(cad)
+
+  const hemisphere = new THREE.HemisphereLight(0xffffff, 0x595f6b, 1.1)
+  scene.add(hemisphere)
+  const key = new THREE.DirectionalLight(0xffffff, 1.6)
+  key.position.set(center.x + maxDim, center.y + maxDim * 1.4, center.z + maxDim * 0.8)
+  scene.add(key)
+  const fill = new THREE.DirectionalLight(0xffffff, 0.5)
+  fill.position.set(center.x - maxDim, center.y + maxDim * 0.4, center.z - maxDim * 0.6)
+  scene.add(fill)
+
+  const furniture = addSceneFurniture(scene, maxDim)
+  const grid = furniture[1] as THREE.GridHelper
+  grid.position.set(center.x, center.y, bounds.min.z)
+
+  shell.camera.near = maxDim / 100
+  shell.camera.far = maxDim * 40
+
+  let mode: RenderMode = 'shaded-edges'
+  applyRenderMode(cad, mode)
+
+  const placeCamera = (): void => {
+    const distance = maxDim * 1.9
+    shell.camera.position.set(
+      center.x + distance * 0.7,
+      center.y + distance * 0.55,
+      center.z + distance * 0.6,
+    )
+    shell.controls.target.copy(center)
     shell.controls.update()
   }
-  place()
+  placeCamera()
+  const viewCube = new ViewCube({ container, camera: shell.camera, controls: shell.controls, onHome: placeCamera })
+  const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad })
 
   const frame = (): void => {
     animationId = requestAnimationFrame(frame)
     shell.controls.update()
     shell.renderer.render(scene, shell.camera)
+    viewCube.update()
   }
   let animationId = requestAnimationFrame(frame)
 
   return {
-    setWireframe(): void {
-      // No model to switch.
+    setWireframe(enabled: boolean): void {
+      this.setRenderMode(enabled ? 'wireframe' : 'shaded-edges')
     },
-    resetView: place,
+    setRenderMode(next: RenderMode): void {
+      mode = next
+      applyRenderMode(cad, mode)
+    },
+    resetView: placeCamera,
     dispose(): void {
       cancelAnimationFrame(animationId)
-      disposeObjects(furniture)
+      picking.dispose()
+      viewCube.dispose()
+      disposeObjects([cad, ...furniture, hemisphere, key, fill])
       shell.dispose()
     },
   }
@@ -253,26 +362,32 @@ export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind
     shell.controls.update()
   }
   placeCamera()
+  const viewCube = new ViewCube({ container, camera: shell.camera, controls: shell.controls, onHome: placeCamera })
+
+  const defaultMode: RenderMode = 'shaded-edges'
+  applyRenderMode(cad, defaultMode)
+  const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad })
 
   const frame = (): void => {
     animationId = requestAnimationFrame(frame)
     shell.controls.update()
     shell.renderer.render(threeScene, shell.camera)
+    viewCube.update()
   }
   let animationId = requestAnimationFrame(frame)
 
   return {
     setWireframe(enabled: boolean): void {
-      cad.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const material = (child as THREE.Mesh).material as THREE.MeshStandardMaterial
-          material.wireframe = enabled
-        }
-      })
+      this.setRenderMode(enabled ? 'wireframe' : 'shaded-edges')
+    },
+    setRenderMode(next: RenderMode): void {
+      applyRenderMode(cad, next)
     },
     resetView: placeCamera,
     dispose(): void {
       cancelAnimationFrame(animationId)
+      picking.dispose()
+      viewCube.dispose()
       disposeObjects([cad, ...furniture, hemisphere, key, fill])
       shell.dispose()
     },

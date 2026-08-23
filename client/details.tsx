@@ -10,10 +10,11 @@
  * and ground grid, slowly rotating — so the right column is a 3D display from
  * the moment dsh opens.
  */
-import React, { useEffect, useReducer, useRef } from 'react'
+import React, { useEffect, useReducer, useRef, useState } from 'react'
 import type { CadScene } from './scene-types.js'
-import { mountEmptyViewer3D } from './viewer3d.js'
-import { readLatest, readMeta, rememberLatest, subscribeLatest, useScene, Viewport, styles } from './viewport.js'
+import { mountCadEditor3D } from './viewer3d.js'
+import type { RenderMode, Viewer3DHandle } from './viewer3d.js'
+import { readLatest, readMeta, rememberLatest, subscribeLatest, useScene, Viewport, styles, RENDER_MODES, RENDER_MODE_LABELS } from './viewport.js'
 
 export interface DetailsBlockLike {
   kind: 'tool-call' | 'tool-result'
@@ -216,23 +217,48 @@ const panelStyles: Record<string, React.CSSProperties> = {
 
 // ── details panel body (shadows the default Details shell) ─────────────────
 
-/** Always-on empty CAD viewport: labeled XYZ triad + grid, auto-rotating. */
-function EmptyCadViewport({ caption }: { caption?: string }): JSX.Element {
+/**
+ * The CAD editor viewport: the demo example L-bracket loads by default with
+ * face + edge rendering; the mode toggle cycles Faces+Edges / Faces /
+ * Wireframe, and the ViewCube home button resets the view.
+ */
+function CadEditorViewport({ caption }: { caption?: string }): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const handleRef = useRef<Viewer3DHandle | null>(null)
+  const [mode, setMode] = useState<RenderMode>('shaded-edges')
+
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return
-    const handle = mountEmptyViewer3D(container)
+    const handle = mountCadEditor3D(container)
+    handleRef.current = handle
     return () => {
       handle.dispose()
+      handleRef.current = null
     }
   }, [])
+
+  useEffect(() => {
+    handleRef.current?.setRenderMode(mode)
+  }, [mode])
+
+  const cycleMode = () => {
+    setMode((previous) => RENDER_MODES[(RENDER_MODES.indexOf(previous) + 1) % RENDER_MODES.length])
+  }
+
   return (
     <div style={panelStyles.viewportSection}>
-      <div style={panelStyles.caption}>{caption ?? 'CAD viewport'}</div>
-      <div ref={containerRef} style={{ ...panelStyles.emptyViewport }} />
+      <div style={panelStyles.caption}>{caption ?? 'CAD editor'}</div>
+      <div style={{ ...panelStyles.emptyViewport, position: 'relative' }}>
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        <div style={styles.toolbar}>
+          <button type="button" style={styles.button} onClick={cycleMode} aria-pressed={mode === 'wireframe'}>
+            {RENDER_MODE_LABELS[mode]}
+          </button>
+        </div>
+      </div>
       <div style={panelStyles.emptyHint}>
-        3D 显示区就绪（Z 轴向上）——运行任意 CAD 工具后此处显示模型
+        CAD 编辑器就绪——已载入示例 L 型支架；悬停/点选面与边可高亮并查看测量（面积/长度），右上角导航块切换视角；运行 CAD 工具后自动跟踪最新模型
       </div>
     </div>
   )
@@ -280,7 +306,7 @@ export function CadDetailsShell(props: DetailsShellProps): JSX.Element {
       {callId !== undefined && block !== undefined && block !== null ? (
         <CadDetailsPanel block={block as DetailsBlockLike} />
       ) : (
-        <EmptyCadViewport />
+        <CadEditorViewport />
       )}
     </div>
   )
@@ -352,7 +378,7 @@ export function CadModelView(props: CadModelViewProps = {}): JSX.Element {
           <LatestScene meta={latest.meta} height="calc(100vh - 250px)" />
         </div>
       ) : (
-        <EmptyCadViewport />
+        <CadEditorViewport />
       )}
     </div>
   )

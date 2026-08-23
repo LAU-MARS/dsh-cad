@@ -7,9 +7,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CadScene, CadViewMeta } from './scene-types.js'
 import { mountViewer3D } from './viewer3d.js'
-import type { Viewer3DHandle } from './viewer3d.js'
+import type { RenderMode, Viewer3DHandle } from './viewer3d.js'
 import { entityNodes, fitViewBox } from './viewer2d.js'
 import type { ViewBox } from './viewer2d.js'
+
+/** Render-mode cycle order + button labels (shared by editor and cards). */
+export const RENDER_MODES: RenderMode[] = ['shaded-edges', 'shaded', 'wireframe']
+export const RENDER_MODE_LABELS: Record<RenderMode, string> = {
+  'shaded-edges': 'Faces+Edges',
+  shaded: 'Faces',
+  wireframe: 'Wireframe',
+}
 
 // ── latest-CAD memory ───────────────────────────────────────────────────────
 
@@ -155,14 +163,14 @@ export function Viewport({ scene, error, height }: SceneState & { height?: numbe
 function Viewport3D({ scene, height }: { scene: Extract<CadScene, { kind: '3d' }>; height?: number | string }): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const handleRef = useRef<Viewer3DHandle | null>(null)
-  const [wireframe, setWireframe] = useState(false)
+  const [renderMode, setRenderMode] = useState<RenderMode>('shaded-edges')
 
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return
     const handle = mountViewer3D(container, scene)
     handleRef.current = handle
-    handle.setWireframe(wireframe)
+    handle.setRenderMode(renderMode)
     return () => {
       handle.dispose()
       handleRef.current = null
@@ -170,12 +178,12 @@ function Viewport3D({ scene, height }: { scene: Extract<CadScene, { kind: '3d' }
     // scene identity is stable for a viewId.
   }, [scene])
 
-  const toggleWireframe = useCallback(() => {
-    setWireframe((previous) => {
-      const next = !previous
-      handleRef.current?.setWireframe(next)
-      return next
-    })
+  useEffect(() => {
+    handleRef.current?.setRenderMode(renderMode)
+  }, [renderMode])
+
+  const cycleRenderMode = useCallback(() => {
+    setRenderMode((previous) => RENDER_MODES[(RENDER_MODES.indexOf(previous) + 1) % RENDER_MODES.length])
   }, [])
 
   const resetView = useCallback(() => {
@@ -186,8 +194,8 @@ function Viewport3D({ scene, height }: { scene: Extract<CadScene, { kind: '3d' }
     <div style={styles.viewportWrap}>
       <div ref={containerRef} style={{ ...styles.viewport, height: height ?? 360 }} />
       <div style={styles.toolbar}>
-        <button type="button" style={styles.button} onClick={toggleWireframe} aria-pressed={wireframe}>
-          {wireframe ? 'Shaded' : 'Wireframe'}
+        <button type="button" style={styles.button} onClick={cycleRenderMode} aria-pressed={renderMode === 'wireframe'}>
+          {RENDER_MODE_LABELS[renderMode]}
         </button>
         <button type="button" style={styles.button} onClick={resetView}>
           Reset view
@@ -284,9 +292,10 @@ export const styles: Record<string, React.CSSProperties> = {
   toolbar: {
     position: 'absolute',
     top: 8,
-    right: 8,
+    left: 8,
     display: 'flex',
     gap: 6,
+    zIndex: 5,
   },
   button: {
     border: '1px solid var(--dsw-alias-border-l2, #c4c9d0)',
