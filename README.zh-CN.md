@@ -16,16 +16,18 @@
 
 ## 预览
 
-在对话中实时建模的 L 型支架——轮廓拉伸、通孔与全边圆角（OCCT 精确 BRep），
-在内嵌查看器卡片中渲染：
+启动即见的 CAD 编辑器：示例 L 型支架由内置的 `demo-bracket.brep` 经 OCCT
+解析渲染——面 + 边显示模式、悬停即测（拾取面 4,800 mm²）、角落 ViewCube
+导航块、支架 / 法兰 / 轴三种示例件一键切换：
 
-![用 dsh-cad 建模的 L 型支架](docs/img/bracket-preview.png)
+![dsh-cad CAD 编辑器](docs/img/bracket-preview.png)
 
 ## 功能总览
 
 | 能力 | 说明 |
 | --- | --- |
 | 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP / DCPRT（3D），DXF / SVG（2D），对话内嵌交互卡片（轨道旋转 / 缩放 / 线框 / 平移） |
+| 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
 | 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
 | 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
 | 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |

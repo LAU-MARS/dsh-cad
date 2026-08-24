@@ -17,16 +17,19 @@ step by step — "model while you watch".
 
 ## Preview
 
-An L-bracket modeled live in the chat — profile extrusion, through holes and
-all-edge fillet as exact OCCT BRep, rendered in the embedded viewer card:
+The CAD editor at startup: the demo L-bracket parsed from the packaged
+`demo-bracket.brep` by OCCT — face + edge rendering, hover measurement of the
+picked face (4,800 mm²), a ViewCube navigation cube in the corner, and
+switchable demo parts (bracket / flange / shaft):
 
-![L-bracket modeled with dsh-cad](docs/img/bracket-preview.png)
+![dsh-cad CAD editor](docs/img/bracket-preview.png)
 
 ## Feature Overview
 
 | Capability | Description |
 | --- | --- |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
+| 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives (box/cylinder/sphere/cone/torus), profile extrusion, booleans (fuse/cut/common), all-edge fillet, transforms (translate/rotate/mirror) — exact OCCT BRep, not a mesh approximation |
 | 📐 Geometry measurement | Exact volume (mm³), bounding box, triangle counts, DXF layers |
 | 📤 On-demand export | STEP (parametric) / STL (mesh); files are written only when the user asks |
