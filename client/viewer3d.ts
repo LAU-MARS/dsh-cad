@@ -20,12 +20,20 @@ export type RenderMode = 'shaded-edges' | 'shaded' | 'wireframe'
 /** Feature-edge threshold in degrees — below it, smooth surfaces stay clean. */
 const EDGE_ANGLE = 25
 
+/** The built-in demo examples served by /dsh-cad/demo-scene. */
+export type DemoPart = 'bracket' | 'flange' | 'shaft'
+
 export interface Viewer3DHandle {
   /** Legacy shortcut: true → wireframe, false → shaded-edges. */
   setWireframe(enabled: boolean): void
   setRenderMode(mode: RenderMode): void
   resetView(): void
   dispose(): void
+}
+
+export interface CadEditorHandle extends Viewer3DHandle {
+  /** Load a different built-in demo BRep part (keeps the current one on failure). */
+  loadPart(part: DemoPart): void
 }
 
 /** Axis color convention: X red, Y green, Z blue. */
@@ -225,50 +233,54 @@ function buildMesh(mesh: CadMesh | { name: string; color?: number; positions: Fl
 }
 
 /**
- * The CAD editor viewport: the demo example L-bracket (face + edge rendering)
- * loaded at startup, on the always-on ground grid + labeled XYZ triad. It is
- * the editor surface before any CAD tool produces a scene.
+ * The CAD editor viewport: the demo example L-bracket parsed from the packaged
+ * demo-bracket.brep (served by /dsh-cad/demo-scene), so what is displayed
+ * corresponds to the real local BRep file. The client-side extrusion is the
+ * instant-paint fallback while the fetch is in flight (or when it fails).
  */
-export function mountCadEditor3D(container: HTMLElement): Viewer3DHandle {
+export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (source: 'brep' | 'fallback') => void; part?: DemoPart } = {}): CadEditorHandle {
   const shell = mountShell(container)
   const scene = new THREE.Scene()
 
-  const cad = new THREE.Group()
+  // cadRoot is stable across the BRep swap: picking and render-mode helpers
+  // hold this reference, so replaced children are always the live set.
+  const cadRoot = new THREE.Group()
+  scene.add(cadRoot)
+  let cad = new THREE.Group()
   cad.add(buildMesh({ name: 'demo-bracket', geometry: demoBracketGeometry() }))
+  cadRoot.add(cad)
 
-  const bounds = DEMO_BOUNDS
-  const size = new THREE.Vector3(
+  let bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } = { ...DEMO_BOUNDS }
+  let size = new THREE.Vector3(
     bounds.max.x - bounds.min.x,
     bounds.max.y - bounds.min.y,
     bounds.max.z - bounds.min.z,
   )
-  const center = new THREE.Vector3(
+  let center = new THREE.Vector3(
     (bounds.max.x + bounds.min.x) / 2,
     (bounds.max.y + bounds.min.y) / 2,
     (bounds.max.z + bounds.min.z) / 2,
   )
-  const maxDim = Math.max(size.x, size.y, size.z, 1e-6)
+  let maxDim = Math.max(size.x, size.y, size.z, 1e-6)
 
   scene.add(cad)
 
   const hemisphere = new THREE.HemisphereLight(0xffffff, 0x595f6b, 1.1)
   scene.add(hemisphere)
   const key = new THREE.DirectionalLight(0xffffff, 1.6)
-  key.position.set(center.x + maxDim, center.y + maxDim * 1.4, center.z + maxDim * 0.8)
   scene.add(key)
   const fill = new THREE.DirectionalLight(0xffffff, 0.5)
-  fill.position.set(center.x - maxDim, center.y + maxDim * 0.4, center.z - maxDim * 0.6)
   scene.add(fill)
+  const placeLights = (): void => {
+    key.position.set(center.x + maxDim, center.y + maxDim * 1.4, center.z + maxDim * 0.8)
+    fill.position.set(center.x - maxDim, center.y + maxDim * 0.4, center.z - maxDim * 0.6)
+  }
+  placeLights()
 
   const furniture = addSceneFurniture(scene, maxDim)
   const grid = furniture[1] as THREE.GridHelper
-  grid.position.set(center.x, center.y, bounds.min.z)
-
-  shell.camera.near = maxDim / 100
-  shell.camera.far = maxDim * 40
 
   let mode: RenderMode = 'shaded-edges'
-  applyRenderMode(cad, mode)
 
   const placeCamera = (): void => {
     const distance = maxDim * 1.9
@@ -280,9 +292,62 @@ export function mountCadEditor3D(container: HTMLElement): Viewer3DHandle {
     shell.controls.target.copy(center)
     shell.controls.update()
   }
-  placeCamera()
+
+  const applyFrame = (): void => {
+    grid.position.set(center.x, center.y, bounds.min.z)
+    shell.camera.near = maxDim / 100
+    shell.camera.far = maxDim * 40
+    applyRenderMode(cadRoot, mode)
+    placeLights()
+    placeCamera()
+  }
+  applyFrame()
+
   const viewCube = new ViewCube({ container, camera: shell.camera, controls: shell.controls, onHome: placeCamera })
-  const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad })
+  const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad: cadRoot })
+
+  let disposed = false
+  /** Swap in geometry parsed from the real BRep file (server-side OCCT). */
+  const swapFromBrep = (loaded: { meshes: Array<Record<string, unknown>>; bounds: typeof bounds }): void => {
+    if (disposed) return
+    cadRoot.remove(cad)
+    disposeObjects([cad])
+    picking.invalidate()
+    cad = new THREE.Group()
+    for (const mesh of loaded.meshes) cad.add(buildMesh(mesh as never))
+    cadRoot.add(cad)
+    bounds = loaded.bounds
+    size = new THREE.Vector3(
+      bounds.max.x - bounds.min.x,
+      bounds.max.y - bounds.min.y,
+      bounds.max.z - bounds.min.z,
+    )
+    center = new THREE.Vector3(
+      (bounds.max.x + bounds.min.x) / 2,
+      (bounds.max.y + bounds.min.y) / 2,
+      (bounds.max.z + bounds.min.z) / 2,
+    )
+    maxDim = Math.max(size.x, size.y, size.z, 1e-6)
+    applyFrame()
+  }
+
+  let brepLoaded = false
+  /** Load a demo part's BRep scene and swap it in (server-side OCCT parse). */
+  const loadPart = (part: DemoPart): void => {
+    fetch(`/dsh-cad/demo-scene?part=${part}`)
+      .then((response) => (response.ok ? (response.json() as Promise<{ meshes: Array<Record<string, unknown>>; bounds: typeof bounds }>) : Promise.reject(new Error(`HTTP ${response.status}`))))
+      .then((loaded) => {
+        if (disposed) return
+        swapFromBrep(loaded)
+        brepLoaded = true
+        options.onSource?.('brep')
+      })
+      .catch(() => {
+        /* keep whatever is currently displayed */
+        if (!disposed) options.onSource?.(brepLoaded ? 'brep' : 'fallback')
+      })
+  }
+  loadPart(options.part ?? 'bracket')
 
   const frame = (): void => {
     animationId = requestAnimationFrame(frame)
@@ -298,14 +363,16 @@ export function mountCadEditor3D(container: HTMLElement): Viewer3DHandle {
     },
     setRenderMode(next: RenderMode): void {
       mode = next
-      applyRenderMode(cad, mode)
+      applyRenderMode(cadRoot, mode)
     },
+    loadPart,
     resetView: placeCamera,
     dispose(): void {
+      disposed = true
       cancelAnimationFrame(animationId)
       picking.dispose()
       viewCube.dispose()
-      disposeObjects([cad, ...furniture, hemisphere, key, fill])
+      disposeObjects([cadRoot, ...furniture, hemisphere, key, fill])
       shell.dispose()
     },
   }

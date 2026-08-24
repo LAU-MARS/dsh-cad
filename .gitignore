@@ -11,3 +11,4 @@ test/visual/scene-3d-snowman.json
 docs/marketing/
 /*.step
 /*.stl
+__pycache__/

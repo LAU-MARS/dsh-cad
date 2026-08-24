@@ -30,7 +30,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node esbuild.client.mjs && node -e \"const fs=require('fs'); fs.copyFileSync('src/convert/step-worker.mjs','lib/convert/step-worker.mjs'); fs.mkdirSync('lib/modeling',{recursive:true}); fs.copyFileSync('src/modeling/occt-adapter.cjs','lib/modeling/occt-adapter.cjs'); fs.copyFileSync('src/modeling/modeling-worker.cjs','lib/modeling/modeling-worker.cjs')\"",
+    "build": "tsc -p tsconfig.json && node esbuild.client.mjs && node -e \"const fs=require('fs'); fs.copyFileSync('src/convert/step-worker.mjs','lib/convert/step-worker.mjs'); fs.mkdirSync('lib/modeling',{recursive:true}); fs.copyFileSync('src/modeling/occt-adapter.cjs','lib/modeling/occt-adapter.cjs'); fs.copyFileSync('src/modeling/modeling-worker.cjs','lib/modeling/modeling-worker.cjs'); for (const part of ['bracket','flange','shaft']) fs.copyFileSync('assets/demo-'+part+'.brep','lib/demo-'+part+'.brep')\"",
     "watch": "tsc -p tsconfig.json --watch & node esbuild.client.mjs --watch",
     "test": "vitest run --no-file-parallelism",
     "test:watch": "vitest"

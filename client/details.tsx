@@ -13,8 +13,15 @@
 import React, { useEffect, useReducer, useRef, useState } from 'react'
 import type { CadScene } from './scene-types.js'
 import { mountCadEditor3D } from './viewer3d.js'
-import type { RenderMode, Viewer3DHandle } from './viewer3d.js'
+import type { CadEditorHandle, RenderMode } from './viewer3d.js'
 import { readLatest, readMeta, rememberLatest, subscribeLatest, useScene, Viewport, styles, RENDER_MODES, RENDER_MODE_LABELS } from './viewport.js'
+
+/** Demo BRep parts offered in the editor switcher (files: demo-<id>.brep). */
+const DEMO_PARTS: Array<{ id: 'bracket' | 'flange' | 'shaft'; label: string }> = [
+  { id: 'bracket', label: 'Bracket' },
+  { id: 'flange', label: 'Flange' },
+  { id: 'shaft', label: 'Shaft' },
+]
 
 export interface DetailsBlockLike {
   kind: 'tool-call' | 'tool-result'
@@ -224,13 +231,15 @@ const panelStyles: Record<string, React.CSSProperties> = {
  */
 function CadEditorViewport({ caption }: { caption?: string }): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const handleRef = useRef<Viewer3DHandle | null>(null)
+  const handleRef = useRef<CadEditorHandle | null>(null)
   const [mode, setMode] = useState<RenderMode>('shaded-edges')
+  const [source, setSource] = useState<'brep' | 'fallback' | 'loading'>('loading')
+  const [part, setPart] = useState<'bracket' | 'flange' | 'shaft'>('bracket')
 
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return
-    const handle = mountCadEditor3D(container)
+    const handle = mountCadEditor3D(container, { onSource: setSource, part: 'bracket' })
     handleRef.current = handle
     return () => {
       handle.dispose()
@@ -242,23 +251,44 @@ function CadEditorViewport({ caption }: { caption?: string }): JSX.Element {
     handleRef.current?.setRenderMode(mode)
   }, [mode])
 
+  const selectPart = (next: 'bracket' | 'flange' | 'shaft'): void => {
+    if (next === part) return
+    setPart(next)
+    setSource('loading')
+    handleRef.current?.loadPart(next)
+  }
+
   const cycleMode = () => {
     setMode((previous) => RENDER_MODES[(RENDER_MODES.indexOf(previous) + 1) % RENDER_MODES.length])
   }
 
   return (
     <div style={panelStyles.viewportSection}>
-      <div style={panelStyles.caption}>{caption ?? 'CAD editor'}</div>
+      <div style={panelStyles.caption}>
+        {caption ?? 'CAD editor'}
+        {source === 'brep' ? ` · demo-${part}.brep` : source === 'fallback' ? ' · 本地兜底' : ' · 加载中…'}
+      </div>
       <div style={{ ...panelStyles.emptyViewport, position: 'relative' }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
         <div style={styles.toolbar}>
+          {DEMO_PARTS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              style={{ ...styles.button, ...(part === entry.id ? { background: 'var(--dsw-alias-label-primary,#4d6bfe)', color: '#fff', borderColor: 'transparent' } : {}) }}
+              onClick={() => { selectPart(entry.id) }}
+              aria-pressed={part === entry.id}
+            >
+              {entry.label}
+            </button>
+          ))}
           <button type="button" style={styles.button} onClick={cycleMode} aria-pressed={mode === 'wireframe'}>
             {RENDER_MODE_LABELS[mode]}
           </button>
         </div>
       </div>
       <div style={panelStyles.emptyHint}>
-        CAD 编辑器就绪——已载入示例 L 型支架；悬停/点选面与边可高亮并查看测量（面积/长度），右上角导航块切换视角；运行 CAD 工具后自动跟踪最新模型
+        CAD 编辑器就绪——示例件（支架 / 法兰 / 轴）均由本地 .brep 文件经 OCCT 解析（文件与显示一一对应），可切换；悬停/点选面与边可查看测量；运行 CAD 工具后自动跟踪最新模型
       </div>
     </div>
   )

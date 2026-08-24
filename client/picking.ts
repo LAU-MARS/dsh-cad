@@ -324,11 +324,12 @@ export class PickingController {
   }
 
   private meshesOf(): THREE.Mesh[] {
-    // Refresh lazily: bodies can change identity between scenes.
+    // Refresh lazily: bodies can change identity between scenes; traverse the
+    // whole subtree so grouped/nested body containers work too.
     this.meshes.length = 0
-    for (const child of this.options.cad.children) {
+    this.options.cad.traverse((child) => {
       if ((child as THREE.Mesh).isMesh) this.meshes.push(child as THREE.Mesh)
-    }
+    })
     return this.meshes
   }
 
@@ -427,6 +428,15 @@ export class PickingController {
   private setHover(target: Target | null): void {
     if (sameTarget(target, this.hover)) return
     this.hover = target
+    this.refresh()
+  }
+
+  /** Meshes were replaced (e.g. demo swap): drop region/group caches + selection. */
+  invalidate(): void {
+    this.faceCache.clear()
+    this.edgeCache.clear()
+    this.selection = null
+    this.hover = null
     this.refresh()
   }
 
