@@ -10,6 +10,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import type { GeometryExecutor, GeometryProgram, GeometryResult, RunOptions } from './executor.js'
 
 /** Mesh shape shared with the WASM worker pipeline. */
 export interface FreeCadMesh {
@@ -441,4 +442,17 @@ function mapBridgeResult(parsed: BridgeResult): FreeCadResult {
     volumes: parsed.volumes ?? {},
     exported: parsed.exported,
   }
+}
+
+/** The GeometryExecutor contract over the FreeCAD console/GUI bridge. */
+export const FREECAD_EXECUTOR: GeometryExecutor = {
+  id: 'freecad',
+  label: 'FreeCAD',
+  available: freecadAvailable,
+  unavailableReason: () => 'FreeCAD was not found — install FreeCAD or point FREECAD_BIN at its console binary (freecadcmd)',
+  run(program: GeometryProgram, options: RunOptions = {}): Promise<GeometryResult> {
+    // `display` rides the detached-GUI path: the FreeCAD window opens with
+    // the bodies loaded and stays open for inspection.
+    return runFreeCadProgram(program, { ...options, gui: program.display === true })
+  },
 }

@@ -16,6 +16,7 @@ import { createCadViewTool } from './tools/cad-view.js'
 import { createCadInfoTool } from './tools/cad-info.js'
 import { createModelTools } from './tools/cad-model.js'
 import { createFreeCadTool } from './tools/cad-freecad.js'
+import { createFusionTool } from './tools/cad-fusion.js'
 import { createCadImageTool } from './tools/cad-image.js'
 
 export const name = 'dsh-cad'
@@ -76,6 +77,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const cadInfo = createCadInfoTool({ workspaceRoot })
   const modelTools = createModelTools({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadFreeCad = createFreeCadTool({ store: binStore, workspaceRoot, ensureSceneRoute })
+  const cadFusion = createFusionTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadImage = createCadImageTool({ store, workspaceRoot, ensureSceneRoute })
 
   const disposers = [
@@ -83,6 +85,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     ctx.tools.register(cadInfo),
     ...modelTools.map((tool) => ctx.tools.register(tool)),
     ctx.tools.register(cadFreeCad),
+    ctx.tools.register(cadFusion),
     ctx.tools.register(cadImage),
   ]
 

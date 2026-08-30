@@ -14,7 +14,9 @@
  */
 import React, { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import type { CadViewMeta } from './scene-types.js'
-import { readLatest, subscribeLatest, useScene, Viewport } from './viewport.js'
+import { mountCadEditor3D } from './viewer3d.js'
+import type { CadEditorHandle, DemoPart, RenderMode } from './viewer3d.js'
+import { readLatest, subscribeLatest, useScene, Viewport, RENDER_MODES, RENDER_MODE_LABELS, styles } from './viewport.js'
 
 // ── harness services (structural, defensive) ────────────────────────────────
 
@@ -245,7 +247,7 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
             </div>
             <div style={panelStyles.body}>
               {meta === null ? (
-                <EmptyState />
+                <DemoEditorState />
               ) : (
                 <div key={meta.sceneUrl ?? meta.viewId} style={panelStyles.sceneFill}>
                   <Viewport scene={scene} error={error} fill />
@@ -306,16 +308,80 @@ function statsLine(meta: CadViewMeta): string {
   return parts.join(' · ')
 }
 
-/** Quiet empty placeholder — the pre-modeling state of the display area. */
-function EmptyState(): JSX.Element {
+/** Demo BRep parts offered in the editor switcher (files: demo-<id>.brep). */
+const DEMO_PARTS: Array<{ id: DemoPart; label: string }> = [
+  { id: 'bracket', label: 'Bracket' },
+  { id: 'flange', label: 'Flange' },
+  { id: 'shaft', label: 'Shaft' },
+]
+
+/**
+ * The pre-modeling state: the CAD editor with the demo examples, each parsed
+ * from its packaged .brep file by the server-side OCCT (local file ↔ display
+ * correspondence). Once the session produces a CAD result the panel swaps to
+ * live model tracking.
+ */
+function DemoEditorState(): JSX.Element {
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const handleRef = useRef<CadEditorHandle | null>(null)
+  const [mode, setMode] = useState<RenderMode>('shaded-edges')
+  const [source, setSource] = useState<'brep' | 'fallback' | 'loading'>('loading')
+  const [part, setPart] = useState<DemoPart>('bracket')
+
+  useEffect(() => {
+    const container = containerRef.current
+    if (container === null) return
+    const handle = mountCadEditor3D(container, { onSource: setSource, part: 'bracket' })
+    handleRef.current = handle
+    return () => {
+      handle.dispose()
+      handleRef.current = null
+    }
+  }, [])
+
+  useEffect(() => {
+    handleRef.current?.setRenderMode(mode)
+  }, [mode])
+
+  const selectPart = (next: DemoPart): void => {
+    if (next === part) return
+    setPart(next)
+    setSource('loading')
+    handleRef.current?.loadPart(next)
+  }
+
+  const cycleMode = (): void => {
+    setMode((previous) => RENDER_MODES[(RENDER_MODES.indexOf(previous) + 1) % RENDER_MODES.length])
+  }
+
   return (
-    <div style={panelStyles.empty}>
-      <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.1" style={panelStyles.emptyIcon} aria-hidden="true">
-        <path d="M12 2.6 21 7.3v9.4L12 21.4 3 16.7V7.3Z" />
-        <path d="M3 7.3 12 12l9-4.7M12 12v9.4" />
-      </svg>
-      <div style={panelStyles.emptyTitle}>暂无三维模型</div>
-      <div style={panelStyles.emptyHint}>在对话中执行 CAD 建模后，此处将实时同步最新模型</div>
+    <div style={panelStyles.demoRoot}>
+      <div style={panelStyles.demoCaption}>
+        CAD editor
+        {source === 'brep' ? ` · demo-${part}.brep` : source === 'fallback' ? ' · 本地兜底' : ' · 加载中…'}
+      </div>
+      <div style={panelStyles.demoViewport}>
+        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        <div style={styles.toolbar}>
+          {DEMO_PARTS.map((entry) => (
+            <button
+              key={entry.id}
+              type="button"
+              style={{ ...styles.button, ...(part === entry.id ? { background: 'var(--dsw-alias-label-primary,#4d6bfe)', color: '#fff', borderColor: 'transparent' } : {}) }}
+              onClick={() => { selectPart(entry.id) }}
+              aria-pressed={part === entry.id}
+            >
+              {entry.label}
+            </button>
+          ))}
+          <button type="button" style={styles.button} onClick={cycleMode} aria-pressed={mode === 'wireframe'}>
+            {RENDER_MODE_LABELS[mode]}
+          </button>
+        </div>
+      </div>
+      <div style={panelStyles.demoHint}>
+        示例件（支架 / 法兰 / 轴）由本地 .brep 经 OCCT 解析，可切换；悬停/点选面与边查看测量；对话中建模后此面板自动跟踪最新模型
+      </div>
     </div>
   )
 }
@@ -403,32 +469,38 @@ const panelStyles: Record<string, React.CSSProperties> = {
     display: 'flex',
     flexDirection: 'column',
   },
-  empty: {
+  demoRoot: {
     flex: '1 1 auto',
     minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    padding: 24,
-    background: 'var(--dsh-cad-bg, linear-gradient(#f5f6f8, #e9ecf0))',
+    gap: 6,
+    padding: '10px 10px 12px',
   },
-  emptyIcon: {
-    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
-    opacity: 0.65,
+  demoCaption: {
+    color: 'var(--dsw-alias-label-tertiary, #6b7280)',
+    fontSize: 11,
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
     flex: 'none',
   },
-  emptyTitle: {
-    fontSize: 13,
-    fontWeight: 600,
-    color: 'var(--dsw-alias-label-secondary, #6b7280)',
+  demoViewport: {
+    position: 'relative',
+    flex: '1 1 auto',
+    minHeight: 0,
+    borderRadius: 10,
+    overflow: 'hidden',
+    background: 'var(--dsh-cad-bg, linear-gradient(#f5f6f8, #e9ecf0))',
   },
-  emptyHint: {
+  demoHint: {
+    flex: 'none',
+    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
     fontSize: 11,
     lineHeight: '17px',
     textAlign: 'center',
-    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
   },
   rail: {
     position: 'absolute',

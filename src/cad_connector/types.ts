@@ -4,7 +4,7 @@
  * SolidWorks, …) are executors reached through the language declared here.
  */
 
-export type ConnectorStatus = 'built-in' | 'available' | 'coming-soon' | 'planned'
+export type ConnectorStatus = 'built-in' | 'available' | 'experimental' | 'coming-soon' | 'planned'
 
 /**
  * The language/binding a connector speaks. `sdk` marks vendor

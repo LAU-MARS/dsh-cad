@@ -79,6 +79,7 @@ dsh web
 | `cad_export` | 导出 STEP / STL / DCPRT（原生可重放零件文档）到工作区路径 |
 | `cad_delete` | 删除 body |
 | `cad_freecad` | 在外部 FreeCAD 执行器上运行 op 程序（可选 STEP 输入/导出） |
+| `cad_fusion` | 在外部 Fusion 360 执行器上运行 op 程序（GUI 桥；可选导出） |
 | `cad_image_profile` | PNG → 轮廓 → 可直接拉伸的多边形点集 |
 
 每步建模后：**同一查看器卡片原地刷新**（稳定 viewId + 版本化 URL），
@@ -92,12 +93,15 @@ dsh web
 | 连接器 | 套件 | 状态 |
 | --- | --- | --- |
 | **内置内核** | 基于 OCCT + WebGL 的 CAD 建模内核，浏览器内运行——零安装 | ✅ 内置 |
-| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器 | ✅ 可用（需本地安装） |
-| SolidWorks | 达索系统的主流 3D CAD | 🚧 规划中 |
-| Fusion 360 | Autodesk 云端 CAD/CAM | 🚧 规划中 |
+| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器（控制台 + GUI 窗口双模式） | ✅ 可用（需本地安装） |
+| Fusion 360 | Autodesk CAD/CAM，Apple Silicon macOS 与 Windows 均原生——常驻 Add-In + spool 桥（无 headless，Fusion 窗口即查看器） | 🧪 实验性（`cad_fusion`） |
+| SolidWorks | 达索系统的主流 3D CAD，仅 Windows（COM/.NET） | 🚧 Windows demo 脚手架（`scripts/solidworks-bridge/`） |
 | Onshape | 云原生 SaaS CAD，完全在浏览器中 | 🚧 规划中 |
 | 中望3D（ZW3D） | 中望软件的一体化 CAD/CAM | 🚧 规划中 |
 | 浩辰3D | 浩辰软件的 3D CAD | 🚧 规划中 |
+
+所有外部引擎实现同一 **GeometryExecutor 契约**（`available()` / `run(op程序) → 网格`），
+WebGL 显示层因此永不改变——更换后端只影响生成几何的质量。
 
 ## 架构
 

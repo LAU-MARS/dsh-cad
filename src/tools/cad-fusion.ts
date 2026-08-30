@@ -1,10 +1,9 @@
 /**
- * cad_freecad: run a feature program on an external FreeCAD executor. The
- * program uses the same op shapes as the built-in kernel (create_prim /
- * extrude_profile / boolean / fillet / transform / volume / delete / reset);
- * meshes flow back into the same embedded viewer via the binary scene store.
- * Optionally loads an input CAD file (STEP/BREP/STL) first and/or exports
- * the result (.step/.stl) — the "upload STEP → external-engine pipeline".
+ * cad_fusion: run a feature program on an external Fusion 360 executor
+ * (GUI bridge — Fusion has no headless mode, so the window opens with the
+ * bodies loaded, doubling as a viewer). Same op shapes as the built-in
+ * kernel and cad_freecad; meshes flow back into the same embedded WebGL
+ * viewer via the binary scene store.
  */
 import { randomUUID } from 'node:crypto'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -12,32 +11,24 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
 import type { BinMeshData } from '../modeling/bin-format.js'
 import { resolveWorkspacePath } from './util.js'
-import { findFreeCad, runFreeCadProgram } from '../cad_connector/freecad-executor.js'
 import { isKnownOpKind, normalizeOps } from '../cad_connector/executor.js'
+import { FUSION360_EXECUTOR } from '../cad_connector/fusion360-executor.js'
 
-// Shared executor-contract normalization; historical alias for callers/tests.
-export const normalizeFreeCadSteps = normalizeOps
-
-export interface FreeCadToolDeps {
+export interface FusionToolDeps {
   store: BinarySceneStore
   workspaceRoot: string
   ensureSceneRoute: () => string | null
 }
 
-const INPUT_EXTENSIONS = new Set(['step', 'stp', 'brep', 'stl'])
-const EXPORT_EXTENSIONS = new Set(['step', 'stp', 'stl'])
-
-export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
+export function createFusionTool(deps: FusionToolDeps): ToolDefinition {
   return defineTool({
-    name: 'cad_freecad',
+    name: 'cad_fusion',
     description:
-      'Run a feature program on an external FreeCAD executor (requires FreeCAD installed locally or FREECAD_BIN set). ' +
-      '`steps` is an array of the same ops the built-in kernel uses: create_prim (box/cylinder/sphere/cone/torus with at/axis), ' +
-      'extrude_profile, boolean (fuse/cut/common), fillet, transform, volume, delete, reset. ' +
-      'Optionally `input` loads a STEP/STP/BREP/STL file as body "input" first, and `exportPath` (.step/.stl) writes the final result. ' +
-      'The rebuilt meshes render in the same viewer card, and by default the program also runs in the FreeCAD GUI — the window ' +
-      'opens with the bodies loaded and stays open, so the user can inspect the model in FreeCAD itself (it doubles as a viewer). ' +
-      'Set `headless: true` only for pure exports/automation where no window is wanted.',
+      'Run a feature program on an external Fusion 360 executor (requires Fusion installed locally; native on Apple Silicon macOS and Windows). ' +
+      'Fusion has no headless mode, so its window opens with the result loaded — it doubles as a viewer. ' +
+      '`steps` uses the same ops as the built-in kernel and cad_freecad: create_prim (box/cylinder/sphere/cone/torus), extrude_profile, ' +
+      'boolean (fuse/cut/common), transform, volume, delete, reset. `exportPath` (.step/.stl) writes the result. ' +
+      'First use installs the DshCadBridge add-in into the user Fusion API folder and needs Fusion signed in once.',
     parameters: {
       steps: {
         type: 'array',
@@ -47,13 +38,10 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
           '{kind:"create_prim", bodyId, prim:"box|cylinder|sphere|cone|torus", params:{dx,dy,dz | radius,height | radius1,radius2,height | majorRadius,minorRadius, at:[x,y,z], axis:[x,y,z]}}, ' +
           '{kind:"extrude_profile", bodyId, points:[x0,y0,x1,y1,...], height}, ' +
           '{kind:"boolean", op:"cut|fuse|common", target, tools:[bodyIds]}, ' +
-          '{kind:"fillet", target, radius}, ' +
-          '{kind:"transform", target, translate:[x,y,z], rotate:[rx,ry,rz] deg, mirror:[x,y,z]}, ' +
+          '{kind:"transform", target, translate:[x,y,z], rotate:[rx,ry,rz] deg}, ' +
           '{kind:"volume", target}, {kind:"delete", target}, {kind:"reset"}.',
       },
-      input: { type: 'string', description: 'Optional CAD file to load first (STEP .step/.stp, BREP, STL), absolute or workspace-relative.' },
       exportPath: { type: 'string', description: 'Optional export destination; extension selects .step or .stl.' },
-      headless: { type: 'boolean', description: 'Run in the console binary without opening the FreeCAD window (pure exports/automation).' },
     },
     output: {
       schema: {
@@ -62,22 +50,22 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
         properties: {
           viewId: { type: 'string', required: true, description: 'Viewer scene id.' },
           kind: { type: 'string', required: true, description: 'Always "3d".' },
-          format: { type: 'string', required: true, description: 'Always "freecad".' },
-          file: { type: 'string', required: true, description: 'Source label (input or exported file).' },
+          format: { type: 'string', required: true, description: 'Always "fusion".' },
+          file: { type: 'string', required: true, description: 'Source label (exported file or program).' },
           bodies: { type: 'number', required: true, description: 'Bodies produced.' },
           triangles: { type: 'number', required: true, description: 'Total triangles.' },
           sceneUrl: { type: 'string', description: 'Versioned viewer URL (web compositions).' },
           exported: { type: 'string', description: 'Written export path, when requested.' },
           volume: { type: 'number', description: 'Volume in mm³ when exactly one volume was measured.' },
-          opened: { type: 'boolean', description: 'FreeCAD GUI opened with the result.' },
+          opened: { type: 'boolean', description: 'Fusion window opened with the result.' },
         },
       },
       render: (_args, value) => {
         const record = value as unknown as Record<string, unknown>
-        const lines = [`freecad: ${String(record.bodies)} bodies, ${String(record.triangles)} triangles`]
+        const lines = [`fusion360: ${String(record.bodies)} bodies, ${String(record.triangles)} triangles`]
         if (record.volume !== undefined) lines.push(`volume: ${Number(record.volume).toFixed(2)} mm³`)
         if (record.exported !== undefined) lines.push(`written: ${String(record.exported)}`)
-        if (record.opened === true) lines.push('FreeCAD GUI opened — the window stays open for inspection')
+        lines.push('Fusion window opened — it stays open for inspection')
         return [{ type: 'text', text: lines.join('\n') }]
       },
       presentationMeta: (_args, value) => {
@@ -85,10 +73,10 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
         return {
           viewId: String(record.viewId),
           kind: '3d' as const,
-          format: 'freecad',
+          format: 'fusion',
           file: String(record.file),
           ...(record.sceneUrl === undefined ? {} : { sceneUrl: String(record.sceneUrl) }),
-          title: `FreeCAD · ${String(record.bodies)} ${record.bodies === 1 ? 'body' : 'bodies'}`,
+          title: `Fusion 360 · ${String(record.bodies)} ${record.bodies === 1 ? 'body' : 'bodies'}`,
           stats: { meshes: Number(record.bodies), triangles: Number(record.triangles) },
         }
       },
@@ -96,9 +84,8 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
     timeoutMs: 300_000,
     isConcurrencySafe: () => false,
     async execute(args) {
-      const executable = findFreeCad()
-      if (executable === null) {
-        throw new Error('FreeCAD was not found — install FreeCAD or point FREECAD_BIN at its console binary (freecadcmd)')
+      if (!FUSION360_EXECUTOR.available()) {
+        throw new Error(FUSION360_EXECUTOR.unavailableReason?.() ?? 'Fusion 360 is not available on this machine')
       }
       if (!Array.isArray(args.steps) || args.steps.length === 0) {
         throw new Error('steps must be a non-empty array of ops')
@@ -115,28 +102,22 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
         if (typeof op.bodyId === 'string' && typeof op.name === 'string') names[op.bodyId] = op.name
       }
 
-      const program: Parameters<typeof runFreeCadProgram>[0] = { ops: steps, names }
-      if (args.input !== undefined) {
-        const resolved = resolveWorkspacePath(args.input, deps.workspaceRoot)
-        const extension = resolved.toLowerCase().split('.').pop() ?? ''
-        if (!INPUT_EXTENSIONS.has(extension)) throw new Error(`input must be one of .step .stp .brep .stl (got .${extension})`)
-        program.input = { format: extension as 'step' | 'stp' | 'brep' | 'stl', path: resolved, bodyId: 'input' }
-      }
+      const program: Parameters<typeof FUSION360_EXECUTOR.run>[0] = { ops: steps, names, display: true }
       if (args.exportPath !== undefined) {
         const resolved = resolveWorkspacePath(args.exportPath, deps.workspaceRoot)
         const extension = resolved.toLowerCase().split('.').pop() ?? ''
-        if (!EXPORT_EXTENSIONS.has(extension)) throw new Error(`exportPath must be .step or .stl (got .${extension})`)
+        if (extension !== 'step' && extension !== 'stp' && extension !== 'stl') {
+          throw new Error(`exportPath must be .step or .stl (got .${extension})`)
+        }
         program.export = { format: extension as 'step' | 'stp' | 'stl', path: resolved }
       }
 
-      const gui = args.headless !== true
-      if (gui) program.display = true
-      const result = await runFreeCadProgram(program, gui ? { gui: true } : {})
+      const result = await FUSION360_EXECUTOR.run(program)
       if (result.meshes.length === 0) {
-        throw new Error('the FreeCAD program produced no bodies')
+        throw new Error('the Fusion program produced no bodies')
       }
 
-      const viewId = `freecad-${randomUUID().slice(0, 8)}`
+      const viewId = `fusion-${randomUUID().slice(0, 8)}`
       const meshes: BinMeshData[] = result.meshes.map((mesh) => ({
         name: mesh.name === '' ? mesh.bodyId : mesh.name,
         positions: mesh.positions,
@@ -150,19 +131,19 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
       const value: Record<string, unknown> = {
         viewId,
         kind: '3d',
-        format: 'freecad',
-        file: result.exported ?? (args.input !== undefined ? args.input : 'freecad program'),
+        format: 'fusion',
+        file: result.exported ?? 'fusion program',
         bodies: meshes.length,
         triangles,
+        opened: true,
       }
       if (volumeEntries.length === 1) value.volume = volumeEntries[0]![1]
       if (result.exported !== undefined) value.exported = result.exported
-      if (args.headless !== true) value.opened = true
       const sceneUrlBase = deps.ensureSceneRoute()
       if (sceneUrlBase !== null) value.sceneUrl = `${sceneUrlBase.replace('/scene', '/bin')}/${viewId}`
       return value as never
     },
-    presentCall: () => ({ card: 'generic', title: 'CAD FreeCAD run', kind: 'other' }),
-    presentResult: () => ({ card: 'generic', title: 'CAD FreeCAD' }),
+    presentCall: () => ({ card: 'generic', title: 'CAD Fusion 360 run', kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD Fusion 360' }),
   }) as unknown as ToolDefinition
 }

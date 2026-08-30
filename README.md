@@ -83,6 +83,7 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_export` | Export STEP / STL / DCPRT (the native replayable part document) to a workspace path |
 | `cad_delete` | Delete a body |
 | `cad_freecad` | Run an op program on an external FreeCAD executor (optional STEP input / export) |
+| `cad_fusion` | Run an op program on an external Fusion 360 executor (GUI bridge; optional export) |
 | `cad_image_profile` | PNG → contours → extrusion-ready polygon points |
 
 After every modeling step: **the same viewer card refreshes in place** (stable viewId +
@@ -97,12 +98,16 @@ executors for the same tool family, planned for future support:
 | Connector | Suite | Status |
 | --- | --- | --- |
 | **Built-in kernel** | CAD modeling kernel based on OCCT + WebGL, runs in the browser — zero install | ✅ Built-in |
-| FreeCAD | open-source parametric suite — natural local executor via its Python API | ✅ Available (needs local install) |
-| SolidWorks | Dassault Systèmes industry-standard 3D CAD | 🚧 Planned |
-| Fusion 360 | Autodesk cloud-connected CAD/CAM | 🚧 Planned |
+| FreeCAD | open-source parametric suite — natural local executor via its Python API (console + GUI window modes) | ✅ Available (needs local install) |
+| Fusion 360 | Autodesk CAD/CAM, native on Apple Silicon macOS and Windows — resident add-in + spool bridge (no headless; the Fusion window doubles as a viewer) | 🧪 Experimental (`cad_fusion`) |
+| SolidWorks | Dassault Systèmes industry-standard 3D CAD, Windows-only COM/.NET | 🚧 Windows demo scaffold (`scripts/solidworks-bridge/`) |
 | Onshape | cloud-native SaaS CAD, fully in the browser | 🚧 Planned |
 | ZW3D（中望3D） | ZWSOFT all-in-one CAD/CAM | 🚧 Planned |
 | GstarCAD 3D（浩辰3D） | Gstarsoft 3D CAD | 🚧 Planned |
+
+All external engines implement the same **GeometryExecutor contract** (`available()` /
+`run(opProgram) → meshes`), so the WebGL display layer never changes — swapping a
+backend changes only the quality of the produced geometry.
 
 ## Architecture
 
