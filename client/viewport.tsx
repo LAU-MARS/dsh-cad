@@ -154,14 +154,24 @@ export function useScene(sceneUrl: string | undefined): SceneState {
 
 // ── viewports ────────────────────────────────────────────────────────────────
 
-export function Viewport({ scene, error, height }: SceneState & { height?: number | string }): JSX.Element {
-  if (error !== null) return <div style={styles.error}>{error}</div>
-  if (scene === null) return <div style={styles.placeholder}>loading…</div>
-  if (scene.kind === '3d') return <Viewport3D scene={scene} height={height} />
-  return <Viewport2D scene={scene} height={height} />
+/**
+ * Sizing modes: a fixed `height` (chat cards) or `fill` — the wrapper joins the
+ * parent's flex column and the canvas tracks the flexed box (resident side
+ * panel). `fill` parents must be a definite-height flex column.
+ */
+export interface ViewportSizing {
+  height?: number | string
+  fill?: boolean
 }
 
-function Viewport3D({ scene, height }: { scene: Extract<CadScene, { kind: '3d' }>; height?: number | string }): JSX.Element {
+export function Viewport({ scene, error, height, fill }: SceneState & ViewportSizing): JSX.Element {
+  if (error !== null) return <div style={styles.error}>{error}</div>
+  if (scene === null) return <div style={styles.placeholder}>loading…</div>
+  if (scene.kind === '3d') return <Viewport3D scene={scene} height={height} fill={fill} />
+  return <Viewport2D scene={scene} height={height} fill={fill} />
+}
+
+function Viewport3D({ scene, height, fill }: { scene: Extract<CadScene, { kind: '3d' }> } & ViewportSizing): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const handleRef = useRef<Viewer3DHandle | null>(null)
   const [renderMode, setRenderMode] = useState<RenderMode>('shaded-edges')
@@ -192,8 +202,8 @@ function Viewport3D({ scene, height }: { scene: Extract<CadScene, { kind: '3d' }
   }, [])
 
   return (
-    <div style={styles.viewportWrap}>
-      <div ref={containerRef} style={{ ...styles.viewport, height: height ?? 360 }} />
+    <div style={fill === true ? fillStyles.wrap : styles.viewportWrap}>
+      <div ref={containerRef} style={fill === true ? fillStyles.viewport : { ...styles.viewport, height: height ?? 360 }} />
       <div style={styles.toolbar}>
         <button type="button" style={styles.button} onClick={cycleRenderMode} aria-pressed={renderMode === 'wireframe'}>
           {RENDER_MODE_LABELS[renderMode]}
@@ -206,7 +216,7 @@ function Viewport3D({ scene, height }: { scene: Extract<CadScene, { kind: '3d' }
   )
 }
 
-function Viewport2D({ scene, height }: { scene: Extract<CadScene, { kind: '2d' }>; height?: number | string }): JSX.Element {
+function Viewport2D({ scene, height, fill }: { scene: Extract<CadScene, { kind: '2d' }> } & ViewportSizing): JSX.Element {
   const [viewBox, setViewBox] = useState<ViewBox>(() => fitViewBox(scene))
   const dragRef = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null)
   const fit = useCallback(() => setViewBox(fitViewBox(scene)), [scene])
@@ -252,8 +262,8 @@ function Viewport2D({ scene, height }: { scene: Extract<CadScene, { kind: '2d' }
   if (scene.format === 'svg' && scene.svgText !== undefined) {
     const dataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(scene.svgText)))}`
     return (
-      <div style={styles.viewportWrap}>
-        <div style={{ ...styles.viewport, height: height ?? 360, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#ffffff' }}>
+      <div style={fill === true ? fillStyles.wrap : styles.viewportWrap}>
+        <div style={{ ...(fill === true ? fillStyles.viewport : { ...styles.viewport, height: height ?? 360 }), display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#ffffff' }}>
           <img src={dataUrl} alt={scene.format} style={{ maxWidth: '100%', maxHeight: '100%' }} />
         </div>
         <div style={styles.toolbar} />
@@ -262,10 +272,10 @@ function Viewport2D({ scene, height }: { scene: Extract<CadScene, { kind: '2d' }
   }
 
   return (
-    <div style={styles.viewportWrap}>
+    <div style={fill === true ? fillStyles.wrap : styles.viewportWrap}>
       <svg
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-        style={{ ...styles.viewport, height: height ?? 360, cursor: dragRef.current === null ? 'default' : 'grabbing', touchAction: 'none' }}
+        style={{ ...(fill === true ? fillStyles.viewport : { ...styles.viewport, height: height ?? 360 }), cursor: dragRef.current === null ? 'default' : 'grabbing', touchAction: 'none' }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
@@ -317,5 +327,23 @@ export const styles: Record<string, React.CSSProperties> = {
     color: 'var(--dsw-alias-state-error-primary, #b91c1c)',
     fontSize: 12,
     padding: '10px 12px',
+  },
+}
+
+/** Fill-mode twins of the viewport styles (see {@link ViewportSizing}). */
+const fillStyles: Record<string, React.CSSProperties> = {
+  wrap: {
+    position: 'relative',
+    flex: '1 1 auto',
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  viewport: {
+    flex: '1 1 auto',
+    minHeight: 0,
+    width: '100%',
+    background: 'var(--dsh-cad-bg, linear-gradient(#f5f6f8, #e9ecf0))',
+    display: 'block',
   },
 }

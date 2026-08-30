@@ -68,7 +68,7 @@ interface SceneCommon {
 }
 
 /** Shared scene shell: renderer, Z-up camera, orbit controls, resize, loop. */
-function mountShell(container: HTMLElement, options: { autoRotate?: boolean } = {}): SceneCommon {
+function mountShell(container: HTMLElement, options: { autoRotate?: boolean; onResize?: (width: number, height: number) => void } = {}): SceneCommon {
   const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
   renderer.setPixelRatio(window.devicePixelRatio)
   renderer.setSize(container.clientWidth || 360, container.clientHeight || 300)
@@ -95,6 +95,7 @@ function mountShell(container: HTMLElement, options: { autoRotate?: boolean } = 
     renderer.setSize(width, height, false)
     camera.aspect = width / height
     camera.updateProjectionMatrix()
+    options.onResize?.(width, height)
   }
   const observer = new ResizeObserver(resize)
   observer.observe(container)
@@ -239,7 +240,14 @@ function buildMesh(mesh: CadMesh | { name: string; color?: number; positions: Fl
  * instant-paint fallback while the fetch is in flight (or when it fails).
  */
 export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (source: 'brep' | 'fallback') => void; part?: DemoPart } = {}): CadEditorHandle {
-  const shell = mountShell(container)
+  // onResize re-frames until the user drives the camera — `interacted` and
+  // `placeCamera` are declared below, but the observer only fires after the
+  // synchronous mount body finished.
+  const shell = mountShell(container, {
+    onResize: (): void => {
+      if (!interacted) placeCamera()
+    },
+  })
   const scene = new THREE.Scene()
 
   // cadRoot is stable across the BRep swap: picking and render-mode helpers
@@ -283,7 +291,7 @@ export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (
   let mode: RenderMode = 'shaded-edges'
 
   const placeCamera = (): void => {
-    const distance = maxDim * 1.9
+    const distance = fitDistance(maxDim, shell.camera.aspect, shell.camera.fov)
     shell.camera.position.set(
       center.x + distance * 0.7,
       center.y + distance * 0.55,
@@ -302,6 +310,15 @@ export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (
     placeCamera()
   }
   applyFrame()
+
+  // Re-fit while the layout settles (fill-mode containers resize after mount);
+  // once the user drives the camera themselves, resizes never re-frame.
+  let interacted = false
+  const markInteracted = (): void => {
+    interacted = true
+  }
+  shell.renderer.domElement.addEventListener('pointerdown', markInteracted, { passive: true })
+  shell.renderer.domElement.addEventListener('wheel', markInteracted, { passive: true })
 
   const viewCube = new ViewCube({ container, camera: shell.camera, controls: shell.controls, onHome: placeCamera })
   const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad: cadRoot })
@@ -378,9 +395,28 @@ export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (
   }
 }
 
+/**
+ * Camera distance that fits the model's max dimension through the smaller of
+ * the vertical/horizontal FOVs (a tall narrow viewport must fit horizontally,
+ * a wide chat card vertically), keeping the classic 3/4 viewing angle.
+ */
+function fitDistance(maxDim: number, aspect: number, fovDegrees: number): number {
+  const fovV = (fovDegrees * Math.PI) / 180
+  const fovH = 2 * Math.atan(Math.tan(fovV / 2) * (Number.isFinite(aspect) && aspect > 0 ? aspect : 1))
+  const fitFov = Math.min(fovV, fovH)
+  return ((maxDim / 2) / Math.tan(fitFov / 2)) * 1.5
+}
+
 /** Mount a 3D viewer for real geometry into container; returns the control handle. */
 export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind: '3d'; format: string; meshes: Array<Record<string, unknown>>; bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }; units: string }): Viewer3DHandle {
-  const shell = mountShell(container)
+  // onResize re-frames until the user drives the camera — `interacted` and
+  // `placeCamera` are declared below, but the observer only fires after the
+  // synchronous mount body finished.
+  const shell = mountShell(container, {
+    onResize: (): void => {
+      if (!interacted) placeCamera()
+    },
+  })
   const threeScene = new THREE.Scene()
 
   const cad = new THREE.Group()
@@ -419,7 +455,7 @@ export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind
   shell.camera.far = maxDim * 40
 
   const placeCamera = (): void => {
-    const distance = maxDim * 1.9
+    const distance = fitDistance(maxDim, shell.camera.aspect, shell.camera.fov)
     shell.camera.position.set(
       center.x + distance * 0.7,
       center.y + distance * 0.55,
@@ -429,6 +465,16 @@ export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind
     shell.controls.update()
   }
   placeCamera()
+
+  // Re-fit while the layout settles; once the user orbits/zooms themselves,
+  // resizes never re-frame.
+  let interacted = false
+  const markInteracted = (): void => {
+    interacted = true
+  }
+  shell.renderer.domElement.addEventListener('pointerdown', markInteracted, { passive: true })
+  shell.renderer.domElement.addEventListener('wheel', markInteracted, { passive: true })
+
   const viewCube = new ViewCube({ container, camera: shell.camera, controls: shell.controls, onHome: placeCamera })
 
   const defaultMode: RenderMode = 'shaded-edges'
