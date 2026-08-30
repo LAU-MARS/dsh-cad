@@ -4,6 +4,7 @@
  * Every settled CAD card also feeds the right-side details panel's
  * "latest model" memory.
  */
+import React from 'react'
 import type { CadViewMeta } from './scene-types.js'
 import { readMeta, rememberLatest, useScene, Viewport, styles } from './viewport.js'
 
@@ -24,14 +25,16 @@ export interface CadCardProps {
 const VIEWPORT_HEIGHT = 360
 
 export function CadCard({ block }: CadCardProps): JSX.Element {
-  const meta = block.kind === 'tool-result' ? readMeta(block) : undefined
+  const running = block.kind === 'tool-call'
+  // readMeta returns null for a settled non-CAD block (e.g. an errored call).
+  const meta = running ? undefined : (readMeta(block) ?? undefined)
   const { scene, error } = useScene(meta?.sceneUrl)
 
   if (meta !== undefined) rememberLatest(meta)
 
   if (meta === undefined) {
     // Running state or a result without our metadata: show a quiet placeholder.
-    return <div style={styles.placeholder}>{block.kind === 'tool-call' ? 'Converting CAD…' : 'CAD result'}</div>
+    return <div style={styles.placeholder}>{running ? 'Converting CAD…' : 'CAD result'}</div>
   }
 
   return (

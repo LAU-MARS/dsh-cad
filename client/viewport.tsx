@@ -4,6 +4,7 @@
  * the right-side panel showing the most recent model even while another tool
  * call is selected.
  */
+import React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CadScene, CadViewMeta } from './scene-types.js'
 import { mountViewer3D } from './viewer3d.js'

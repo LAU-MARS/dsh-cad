@@ -64,9 +64,26 @@ function openDetailsOnce(ctx: ClientContext): void {
 }
 
 export function apply(ctx: ClientContext): void {
+  // Entry-crash supervision (the slots' onEntryError seam): render-time
+  // failures abdicate an entry silently, so mirror them on the document —
+  // the CadErrorBoundary data-cad-err pattern — for diagnosable drift.
+  const supervised = ctx.slots as typeof ctx.slots & {
+    onEntryError?: (fn: (key: string, entry: unknown, error: unknown, info: { abdicated: boolean }) => void) => () => void
+  }
+  supervised.onEntryError?.((key, _entry, error, info) => {
+    try {
+      document.documentElement.setAttribute(
+        'data-cad-slot-crash',
+        `${key}:${String(error instanceof Error ? error.message : error).slice(0, 160)}:abd=${String(info.abdicated)}`,
+      )
+    } catch { /* non-DOM host */ }
+  })
+
+  // Chat tool cards: keyed toolview entries (a keyed hit replaces the generic
+  // row). `locale` tags the entry for the conversation namespace's `t` seat.
   for (const key of CAD_TOOL_KEYS) {
     ctx.slots.inject('tool.call.toolview', () =>
-      ctx.slots.register({ name: 'tool.call.toolview', key }, CadCard as unknown as (props: never) => JSX.Element),
+      ctx.slots.register({ name: 'tool.call.toolview', key, locale: 'conversation' }, CadCard as unknown as (props: never) => JSX.Element),
     )
   }
 
