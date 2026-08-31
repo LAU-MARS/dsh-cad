@@ -4,6 +4,30 @@
   "version": "0.2.0",
   "type": "module",
   "license": "MIT",
+  "author": "LAU-MARS",
+  "homepage": "https://lau-mars.github.io/dsh-cad/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LAU-MARS/dsh-cad.git"
+  },
+  "bugs": {
+    "url": "https://github.com/LAU-MARS/dsh-cad/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "cad",
+    "3d",
+    "2d",
+    "occt",
+    "opencascade",
+    "threejs",
+    "step",
+    "iges",
+    "dxf",
+    "svg"
+  ],
   "engines": {
     "node": ">=22",
     "dsh": ">=0.1.0-rc.7"
