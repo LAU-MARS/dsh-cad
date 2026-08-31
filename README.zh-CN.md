@@ -105,15 +105,15 @@ dsh web
 建模目前已由**内置的 WebGL 级建模器**承担（浏览器内的 OCCT 内核，零安装）；
 下表连接器指未来以**外部 CAD 引擎作为执行器**驱动同一工具族：
 
-| 连接器 | 套件 | 状态 |
-| --- | --- | --- |
-| **内置内核** | 基于 OCCT + WebGL 的 CAD 建模内核，浏览器内运行——零安装 | ✅ 内置 |
-| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器（控制台 + GUI 窗口双模式） | ✅ 可用（需本地安装） |
-| Fusion 360 | Autodesk CAD/CAM，Apple Silicon macOS 与 Windows 均原生——常驻 Add-In + spool 桥（无 headless，Fusion 窗口即查看器） | 🧪 实验性（`cad_fusion`） |
-| SolidWorks | 达索系统的主流 3D CAD，仅 Windows（COM/.NET） | 🚧 Windows demo 脚手架（`scripts/solidworks-bridge/`） |
-| Onshape | 云原生 SaaS CAD，完全在浏览器中 | 🚧 规划中 |
-| 中望3D（ZW3D） | 中望软件的一体化 CAD/CAM | 🚧 规划中 |
-| 浩辰3D | 浩辰软件的 3D CAD | 🚧 规划中 |
+| 连接器 | 套件 | 平台 | 状态 |
+| --- | --- | --- | --- |
+| **内置内核** | 基于 OCCT + WebGL 的 CAD 建模内核，浏览器内运行——零安装 | 全平台（WebGL 渲染） | ✅ 内置 |
+| FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器（控制台 + GUI 窗口双模式） | Windows / macOS / Linux | ✅ 可用（需本地安装） |
+| Fusion 360 | Autodesk CAD/CAM——常驻 Add-In + spool 桥（无 headless，Fusion 窗口即查看器） | Windows / macOS | 🧪 实验性（`cad_fusion`） |
+| SolidWorks | 达索系统的主流 3D CAD，COM/.NET 自动化 | 仅 Windows | 🚧 Windows demo 脚手架（`scripts/solidworks-bridge/`） |
+| Onshape | 云原生 SaaS CAD，完全在浏览器中 | 全平台（浏览器） | 🚧 规划中 |
+| 中望3D（ZW3D） | 中望软件的一体化 CAD/CAM | Windows / Linux | 🚧 规划中 |
+| 浩辰3D | 浩辰软件的 3D CAD | Windows | 🚧 规划中 |
 
 所有外部引擎实现同一 **GeometryExecutor 契约**（`available()` / `run(op程序) → 网格`），
 WebGL 显示层因此永不改变——更换后端只影响生成几何的质量。

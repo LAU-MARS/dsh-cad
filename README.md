@@ -110,15 +110,15 @@ Modeling today runs on the **built-in WebGL-class kernel** (OCCT in the browser 
 zero install). The connectors below refer to **external CAD engines** acting as
 executors for the same tool family, planned for future support:
 
-| Connector | Suite | Status |
-| --- | --- | --- |
-| **Built-in kernel** | CAD modeling kernel based on OCCT + WebGL, runs in the browser — zero install | ✅ Built-in |
-| FreeCAD | open-source parametric suite — natural local executor via its Python API (console + GUI window modes) | ✅ Available (needs local install) |
-| Fusion 360 | Autodesk CAD/CAM, native on Apple Silicon macOS and Windows — resident add-in + spool bridge (no headless; the Fusion window doubles as a viewer) | 🧪 Experimental (`cad_fusion`) |
-| SolidWorks | Dassault Systèmes industry-standard 3D CAD, Windows-only COM/.NET | 🚧 Windows demo scaffold (`scripts/solidworks-bridge/`) |
-| Onshape | cloud-native SaaS CAD, fully in the browser | 🚧 Planned |
-| ZW3D（中望3D） | ZWSOFT all-in-one CAD/CAM | 🚧 Planned |
-| GstarCAD 3D（浩辰3D） | Gstarsoft 3D CAD | 🚧 Planned |
+| Connector | Suite | Platform | Status |
+| --- | --- | --- | --- |
+| **Built-in kernel** | CAD modeling kernel based on OCCT + WebGL, runs in the browser — zero install | All platforms (WebGL rendering) | ✅ Built-in |
+| FreeCAD | open-source parametric suite — natural local executor via its Python API (console + GUI window modes) | Windows / macOS / Linux | ✅ Available (needs local install) |
+| Fusion 360 | Autodesk CAD/CAM — resident add-in + spool bridge (no headless; the Fusion window doubles as a viewer) | Windows / macOS | 🧪 Experimental (`cad_fusion`) |
+| SolidWorks | Dassault Systèmes industry-standard 3D CAD, COM/.NET automation | Windows only | 🚧 Windows demo scaffold (`scripts/solidworks-bridge/`) |
+| Onshape | cloud-native SaaS CAD, fully in the browser | All platforms (browser) | 🚧 Planned |
+| ZW3D（中望3D） | ZWSOFT all-in-one CAD/CAM | Windows / Linux | 🚧 Planned |
+| GstarCAD 3D（浩辰3D） | Gstarsoft 3D CAD | Windows | 🚧 Planned |
 
 All external engines implement the same **GeometryExecutor contract** (`available()` /
 `run(opProgram) → meshes`), so the WebGL display layer never changes — swapping a
