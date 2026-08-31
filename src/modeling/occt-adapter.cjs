@@ -175,9 +175,13 @@ function createAdapter(occt) {
     const explorer = new occt.TopExp_Explorer_2(shape, ENUM.TopAbs_FACE, ENUM.TopAbs_SHAPE)
     let vertexBase = 0
     while (explorer.More()) {
-      const handle = occt.BRep_Tool.Triangulation(castFace(explorer.Current()), loc)
+      const faceShape = explorer.Current()
+      const handle = occt.BRep_Tool.Triangulation(castFace(faceShape), loc)
       const tri = handle && handle.IsNull && !handle.IsNull() ? handle.get() : handle
       if (tri) {
+        // A REVERSED face renders its surface natural orientation backwards —
+        // flip the triangle winding so normals point out of the material.
+        const reversed = faceShape.Orientation_1 !== undefined && faceShape.Orientation_1().value === 1
         const nodeCount = tri.NbNodes()
         for (let i = 1; i <= nodeCount; i++) {
           const node = tri.Node(i)
@@ -188,7 +192,11 @@ function createAdapter(occt) {
         for (let i = 1; i <= tri.NbTriangles(); i++) {
           const t = tri.Triangle(i)
           // Poly_Triangle.Get() uses out-params embind cannot express; Value(1..3) returns the indices.
-          indices.push(vertexBase + t.Value(1) - 1, vertexBase + t.Value(2) - 1, vertexBase + t.Value(3) - 1)
+          const n1 = vertexBase + t.Value(1) - 1
+          const n2 = vertexBase + t.Value(2) - 1
+          const n3 = vertexBase + t.Value(3) - 1
+          if (reversed) indices.push(n1, n3, n2)
+          else indices.push(n1, n2, n3)
         }
         vertexBase += nodeCount
       }

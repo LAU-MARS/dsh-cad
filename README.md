@@ -31,9 +31,11 @@ switchable demo parts (bracket / flange / shaft):
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives (box/cylinder/sphere/cone/torus), profile extrusion, booleans (fuse/cut/common), all-edge fillet, transforms (translate/rotate/mirror) — exact OCCT BRep, not a mesh approximation |
+| 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
+| 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, mesh-projected hidden-line removal (dashed), sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
 | 📐 Geometry measurement | Exact volume (mm³), bounding box, triangle counts, DXF layers |
 | 📤 On-demand export | STEP (parametric) / STL (mesh); files are written only when the user asks |
-| 🖥️ Persistent 3D view panel | A permanent "3D" tab in the session tab bar: XYZ axes + grid (Z-up) when empty, **tracks the latest model in real time** while modeling |
+| 🖥️ Resident CAD panel | A permanent panel right of the conversation: Codex-style tabs (Part / Assembly / Drawing), tracking the latest model in real time while modeling |
 | ⚡ Zero-copy render pipeline | worker mesh → in-memory binary → three.js typed arrays; zero base64 / zero intermediate files / zero per-step disk writes |
 | 💾 Modeling document persistence | Operation log (JSON) + debounced disk mirror; automatically replayed to restore state after a process restart |
 | 🖼️ Image → profile | PNG sketch/screenshot → Otsu binarization → contour tracing → extrusion-ready polygon (`cad_image_profile`) |
@@ -74,6 +76,8 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
   → `cad_create_prim` + `cad_boolean` + `cad_fillet` + `cad_export`, with the 3D tab
   updating live at every step
 - “build a snowman” → spheres + a cone nose + a cylinder hat (precise `at`/`axis` placement)
+- “add two more b1, one rotated 90 degrees” → `cad_assembly_insert` + `cad_assembly_move`, the Assembly tab updates live
+- “make an A3 drawing of b1 and export dxf” → `cad_drawing` (three views + iso + dashed hidden lines + dimensions) → `cad_export` `.dxf`
 
 ## Modeling Tool Family
 
@@ -87,7 +91,11 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_fillet` | Constant-radius fillet on all sharp edges |
 | `cad_transform` | Translate / Euler rotate / mirror |
 | `cad_volume` | Exact BRep volume (mm³) |
-| `cad_export` | Export STEP / STL / DCPRT (the native replayable part document) to a workspace path |
+| `cad_drawing` | Engineering drawing: front/top/left + isometric views, dashed hidden lines, frame, title block, overall dimensions, standard scale, A4/A3 |
+| `cad_assembly_insert` | Insert a body into the assembly as a placed instance (`at` position, `rotate` orientation) |
+| `cad_assembly_move` | Set an instance's absolute placement |
+| `cad_assembly_remove` | Remove an instance from the assembly (the body stays) |
+| `cad_export` | Export STEP / STL / DCPRT (the native replayable part document) to a workspace path; `target: "assembly"` writes the assembly STEP, `target: "drawing"` writes the sheet as SVG / DXF |
 | `cad_delete` | Delete a body |
 | `cad_freecad` | Run an op program on an external FreeCAD executor (optional STEP input / export) |
 | `cad_fusion` | Run an op program on an external Fusion 360 executor (GUI bridge; optional export) |

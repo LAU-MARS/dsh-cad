@@ -2,6 +2,7 @@
  * 2D viewport: SVG rendering of the drawing entity subset with wheel zoom and
  * drag pan, implemented through viewBox state.
  */
+import React from 'react'
 import type { ReactNode } from 'react'
 import type { CadDrawing2D, CadEntity2D } from './scene-types.js'
 
@@ -48,7 +49,17 @@ function arcPath(cx: number, cy: number, r: number, startAngle: number, endAngle
 export function entityNodes(drawing: CadDrawing2D): ReactNode[] {
   return drawing.entities.map((entity, index) => {
     const key = `e${index}`
-    const style = { stroke: entityColor(entity), fill: 'none', strokeWidth: 1, vectorEffect: 'non-scaling-stroke' as const }
+    // Engineering-drawing layer styling: hidden lines dash + lighten, visible
+    // lines carry the heavier stroke; explicit colors still win.
+    const isHidden = entity.layer === 'hidden'
+    const isPaper = entity.layer === 'paper' || entity.layer === 'dim'
+    const style: Record<string, unknown> = {
+      stroke: entityColor(entity),
+      fill: 'none',
+      strokeWidth: isHidden ? 1 : isPaper ? 1 : 1.6,
+      vectorEffect: 'non-scaling-stroke' as const,
+      ...(isHidden ? { strokeDasharray: '6 4' } : {}),
+    }
     switch (entity.type) {
       case 'line':
         return <line key={key} x1={entity.x1} y1={entity.y1} x2={entity.x2} y2={entity.y2} style={style} />

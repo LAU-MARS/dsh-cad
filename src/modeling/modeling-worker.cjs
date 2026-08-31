@@ -13,6 +13,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { createRequire } = require('node:module')
 const { createAdapter } = require('./occt-adapter.cjs')
+const { projectViews } = require('./hlr.cjs')
 
 const require3 = createRequire(__filename)
 // The ES6 emscripten build reads a global __dirname when its factory runs.
@@ -28,6 +29,25 @@ let occt = null
 /** bodyId → { shape, name } — the live document. */
 const bodies = new Map()
 let nextBodyNumber = 1
+
+/** instanceId → { instanceId, bodyId, name, translate, rotate } — the assembly. */
+const instances = new Map()
+
+const triplet = (value) => (Array.isArray(value) && value.length === 3 ? value : [0, 0, 0])
+
+function instancesList() {
+  const list = []
+  for (const instance of instances.values()) {
+    list.push({
+      instanceId: instance.instanceId,
+      bodyId: instance.bodyId,
+      name: instance.name,
+      translate: triplet(instance.translate),
+      rotate: triplet(instance.rotate),
+    })
+  }
+  return list
+}
 
 function meshOf(shape, name) {
   const { positions, indices } = adapter.tessellate(shape)
@@ -104,6 +124,58 @@ function applyOp(op) {
       const bytes = adapter.exportFile(body.shape, op.format)
       return { bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
     }
+    case 'drawing': {
+      const body = bodies.get(op.target)
+      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      // Finer tessellation for drawings: hidden-line views are judged at
+      // silhouette accuracy, not screen-approximation accuracy.
+      const { positions, indices } = adapter.tessellate(body.shape, 0.1)
+      const views = Array.isArray(op.views) && op.views.length > 0 ? op.views : DEFAULT_DRAWING_VIEWS
+      return { views: projectViews({ positions, indices }, views).views }
+    }
+    case 'assembly_insert': {
+      const body = bodies.get(op.bodyId)
+      if (body === undefined) throw new Error(`unknown body: ${op.bodyId}`)
+      if (instances.has(op.instanceId)) throw new Error(`instance already exists: ${op.instanceId}`)
+      instances.set(op.instanceId, {
+        instanceId: op.instanceId,
+        bodyId: op.bodyId,
+        name: op.name ?? body.name,
+        translate: triplet(op.translate),
+        rotate: triplet(op.rotate),
+      })
+      return { instanceId: op.instanceId, bodyId: op.bodyId, instances: instancesList() }
+    }
+    case 'assembly_transform': {
+      const instance = instances.get(op.instanceId)
+      if (instance === undefined) throw new Error(`unknown instance: ${op.instanceId}`)
+      if (op.translate !== undefined) instance.translate = triplet(op.translate)
+      if (op.rotate !== undefined) instance.rotate = triplet(op.rotate)
+      return { instanceId: op.instanceId, instances: instancesList() }
+    }
+    case 'assembly_remove': {
+      if (!instances.delete(op.instanceId)) throw new Error(`unknown instance: ${op.instanceId}`)
+      return { instanceId: op.instanceId, removed: op.instanceId, instances: instancesList() }
+    }
+    case 'export_assembly': {
+      if (instances.size === 0) throw new Error('the assembly is empty')
+      const builder = new occt.BRep_Builder()
+      const compound = new occt.TopoDS_Compound()
+      builder.MakeCompound(compound)
+      let added = 0
+      for (const instance of instances.values()) {
+        const body = bodies.get(instance.bodyId)
+        if (body === undefined) continue // stale instance of a consumed body
+        builder.Add(compound, adapter.transform(body.shape, {
+          translate: instance.translate,
+          rotate: instance.rotate,
+        }))
+        added++
+      }
+      if (added === 0) throw new Error('no instance references a live body')
+      const bytes = adapter.exportFile(compound, op.format)
+      return { bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), instances: instancesList() }
+    }
     case 'volume': {
       const body = bodies.get(op.target)
       if (body === undefined) throw new Error(`unknown body: ${op.target}`)
@@ -115,6 +187,7 @@ function applyOp(op) {
     }
     case 'reset': {
       bodies.clear()
+      instances.clear()
       nextBodyNumber = 1
       return { cleared: true }
     }
@@ -122,6 +195,14 @@ function applyOp(op) {
       throw new Error(`unknown op: ${op.kind}`)
   }
 }
+
+/** Standard third/first-angle drawing views (GB first-angle arrangement). */
+const DEFAULT_DRAWING_VIEWS = [
+  { name: 'front', dir: [0, -1, 0], xDir: [1, 0, 0] },
+  { name: 'top', dir: [0, 0, 1], xDir: [1, 0, 0] },
+  { name: 'left', dir: [-1, 0, 0], xDir: [0, 1, 0] },
+  { name: 'iso', dir: [1, -1, 1], xDir: [1, 1, 0] },
+]
 
 const initOpenCascade = loaderModule.default ?? loaderModule
 initOpenCascade({ wasmBinary }).then((instance) => {

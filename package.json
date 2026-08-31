@@ -1,7 +1,7 @@
 {
   "name": "dsh-cad",
   "description": "CAD visualization plugin for DeepSeek Harness: cad_view / cad_info tools with an embedded 3D (STL/OBJ/STEP/IGES) and 2D (DXF/SVG) viewer card in the Web UI",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -34,7 +34,7 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json && node esbuild.client.mjs && node -e \"const fs=require('fs'); fs.copyFileSync('src/convert/step-worker.mjs','lib/convert/step-worker.mjs'); fs.mkdirSync('lib/modeling',{recursive:true}); fs.copyFileSync('src/modeling/occt-adapter.cjs','lib/modeling/occt-adapter.cjs'); fs.copyFileSync('src/modeling/modeling-worker.cjs','lib/modeling/modeling-worker.cjs'); for (const part of ['bracket','flange','shaft']) fs.copyFileSync('assets/demo-'+part+'.brep','lib/demo-'+part+'.brep')\"",
+    "build": "tsc -p tsconfig.json && node esbuild.client.mjs && node -e \"const fs=require('fs'); fs.copyFileSync('src/convert/step-worker.mjs','lib/convert/step-worker.mjs'); fs.mkdirSync('lib/modeling',{recursive:true}); fs.copyFileSync('src/modeling/occt-adapter.cjs','lib/modeling/occt-adapter.cjs'); fs.copyFileSync('src/modeling/modeling-worker.cjs','lib/modeling/modeling-worker.cjs'); fs.copyFileSync('src/modeling/hlr.cjs','lib/modeling/hlr.cjs'); for (const part of ['bracket','flange','shaft']) fs.copyFileSync('assets/demo-'+part+'.brep','lib/demo-'+part+'.brep')\"",
     "watch": "tsc -p tsconfig.json --watch & node esbuild.client.mjs --watch",
     "test": "vitest run --no-file-parallelism",
     "test:watch": "vitest"

@@ -18,6 +18,22 @@ export interface WorkerMesh {
   triangleCount: number
 }
 
+/** One placed reference of a body inside the assembly. */
+export interface AssemblyInstance {
+  instanceId: string
+  bodyId: string
+  name: string
+  translate: [number, number, number]
+  rotate: [number, number, number]
+}
+
+/** One projected hidden-line drawing view (flat [x,y, x,y, …] polylines, mm). */
+export interface DrawingView {
+  name: string
+  visible: number[][]
+  hidden: number[][]
+}
+
 export interface OpResult {
   bodyId?: string
   name?: string
@@ -29,6 +45,15 @@ export interface OpResult {
   volume?: number
   deleted?: string
   cleared?: boolean
+  views?: DrawingView[]
+  instanceId?: string
+  instances?: AssemblyInstance[]
+}
+
+export interface DrawingViewSpec {
+  name: string
+  dir: [number, number, number]
+  xDir: [number, number, number]
 }
 
 export type ModelOp =
@@ -42,6 +67,11 @@ export type ModelOp =
   | { kind: 'volume'; target: string }
   | { kind: 'delete'; target: string }
   | { kind: 'reset' }
+  | { kind: 'drawing'; target: string; views: DrawingViewSpec[]; sceneViewId?: string; name?: string; paper?: 'A4' | 'A3' }
+  | { kind: 'assembly_insert'; instanceId: string; bodyId: string; name?: string; translate?: [number, number, number]; rotate?: [number, number, number] }
+  | { kind: 'assembly_transform'; instanceId: string; translate?: [number, number, number]; rotate?: [number, number, number] }
+  | { kind: 'assembly_remove'; instanceId: string }
+  | { kind: 'export_assembly'; format: 'step' | 'stl' }
 
 interface Pending {
   resolve: (result: OpResult) => void

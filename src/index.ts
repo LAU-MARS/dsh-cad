@@ -75,7 +75,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const cadView = createCadViewTool({ store, workspaceRoot, ensureSceneRoute })
   const cadInfo = createCadInfoTool({ workspaceRoot })
-  const modelTools = createModelTools({ store: binStore, workspaceRoot, ensureSceneRoute })
+  const modelTools = createModelTools({ store: binStore, sceneStore: store, workspaceRoot, ensureSceneRoute })
   const cadFreeCad = createFreeCadTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadFusion = createFusionTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadImage = createCadImageTool({ store, workspaceRoot, ensureSceneRoute })

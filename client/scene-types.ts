@@ -48,6 +48,8 @@ export interface CadViewMeta {
   kind: '3d' | '2d'
   format: string
   file: string
+  /** Which panel tab this result belongs to (default 'part'). */
+  doc?: 'part' | 'assembly' | 'drawing'
   sceneUrl?: string
   title: string
   stats: {

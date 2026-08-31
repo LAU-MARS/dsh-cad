@@ -38,6 +38,10 @@ const CAD_TOOL_KEYS = [
   'cad_volume',
   'cad_freecad',
   'cad_image_profile',
+  'cad_drawing',
+  'cad_assembly_insert',
+  'cad_assembly_move',
+  'cad_assembly_remove',
 ]
 
 export function apply(ctx: ClientContext): void {

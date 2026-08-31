@@ -29,9 +29,11 @@
 | 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP / DCPRT（3D），DXF / SVG（2D），对话内嵌交互卡片（轨道旋转 / 缩放 / 线框 / 平移） |
 | 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
 | 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
+| 🗂️ Codex 式文档页签 | 右侧显示区页签栏 + 「+」菜单：**零件**（Part Studio，默认）/ **装配体**（实例插入/移动/移除）/ **工程图**（真实隐藏线图纸），页签可关闭、常驻不丢状态 |
+| 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，网格投影隐藏线消除（虚线）、图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
 | 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
 | 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |
-| 🖥️ 常驻 3D 显示区 | 会话页签栏常驻 "3D" 页签：无模型时显示 XYZ 坐标轴 + 网格（Z-up），建模时**实时跟踪最新模型** |
+| 🖥️ 常驻 CAD 显示区 | 会话页右侧常驻面板：Codex 式页签（零件 / 装配体 / 工程图），建模时实时跟踪最新模型 |
 | ⚡ 直通渲染管道 | worker 网格 → 内存二进制 → three.js typed-array，零 base64 / 零中间文件 / 零每步落盘 |
 | 💾 建模文档持久化 | 操作日志（JSON）+ 防抖磁盘镜像，进程重启后自动重放恢复 |
 | 🖼️ 图片 → 轮廓 | PNG 草图/截图 → Otsu 二值化 → 轮廓追踪 → 可直接拉伸的多边形（`cad_image_profile`） |
@@ -70,6 +72,8 @@ dsh web
 - “画一个 100×60×5 的板，中间打 ⌀20 孔，四角 R2 圆角，加 ⌀16 高 20 凸台，导出 plate.step”
   → `cad_create_prim` + `cad_boolean` + `cad_fillet` + `cad_export`，每步 3D 页签实时更新
 - “堆一个雪人” → 球体 + 圆锥鼻子 + 圆柱帽子（`at`/`axis` 精确定位）
+- “再放两个 b1，一个转到 90 度” → `cad_assembly_insert` + `cad_assembly_move`，装配体页签实时更新
+- “给 b1 出一张 A3 工程图，导出 dxf” → `cad_drawing`（三视图 + 轴测 + 虚线隐藏线 + 尺寸标注）→ `cad_export` `.dxf`
 
 ## 模型工具族
 
@@ -83,7 +87,11 @@ dsh web
 | `cad_fillet` | 全锐边等半径圆角 |
 | `cad_transform` | 平移 / 欧拉旋转 / 镜像 |
 | `cad_volume` | 精确 BRep 体积（mm³） |
-| `cad_export` | 导出 STEP / STL / DCPRT（原生可重放零件文档）到工作区路径 |
+| `cad_drawing` | 工程图：主/俯/左 + 轴测四视图，隐藏线（虚线）、图框、标题栏、总尺寸、标准比例，A4/A3 |
+| `cad_assembly_insert` | 将零件以实例插入装配体（`at` 定位、`rotate` 定向） |
+| `cad_assembly_move` | 设置实例绝对位置/姿态 |
+| `cad_assembly_remove` | 从装配体移除实例（零件保留） |
+| `cad_export` | 导出 STEP / STL / DCPRT（原生可重放零件文档）到工作区路径；`target: "assembly"` 导出装配体 STEP，`target: "drawing"` 导出工程图 SVG / DXF |
 | `cad_delete` | 删除 body |
 | `cad_freecad` | 在外部 FreeCAD 执行器上运行 op 程序（可选 STEP 输入/导出） |
 | `cad_fusion` | 在外部 Fusion 360 执行器上运行 op 程序（GUI 桥；可选导出） |

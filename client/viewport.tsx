@@ -22,12 +22,23 @@ export const RENDER_MODE_LABELS: Record<RenderMode, string> = {
 
 // ── latest-CAD memory ───────────────────────────────────────────────────────
 
+/** The panel tab a result belongs to (mirrors CadViewMeta.doc). */
+export type DocKind = 'part' | 'assembly' | 'drawing'
+
 let latest: { meta: CadViewMeta; at: number } | null = null
 const latestListeners = new Set<() => void>()
+/** Newest result per panel tab kind (assembly/drawing tabs track these). */
+const latestByKind: Record<DocKind, { meta: CadViewMeta; at: number } | null> = {
+  part: null,
+  assembly: null,
+  drawing: null,
+}
 
 /** Record the freshest CAD result (called whenever a CAD card settles). */
 export function rememberLatest(meta: CadViewMeta): void {
   latest = { meta, at: Date.now() }
+  const kind: DocKind = meta.doc ?? 'part'
+  latestByKind[kind] = { meta, at: Date.now() }
   for (const listener of latestListeners) listener()
 }
 
@@ -36,9 +47,14 @@ export function readLatest(): { meta: CadViewMeta; at: number } | null {
   return latest
 }
 
+/** The freshest result for one panel tab kind. */
+export function readKind(kind: DocKind): { meta: CadViewMeta; at: number } | null {
+  return latestByKind[kind]
+}
+
 /**
- * Subscribe to latest-CAD changes (the resident 3D view tab re-renders through
- * this so a finished model appears without leaving the tab).
+ * Subscribe to latest-CAD changes (the resident tabs re-render through this
+ * so a finished model appears without leaving the tab).
  */
 export function subscribeLatest(listener: () => void): () => void {
   latestListeners.add(listener)
