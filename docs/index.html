@@ -213,21 +213,19 @@
     </div>
     <div class="start-grid">
       <div>
-        <h3 data-en="1 · Build the plugin" data-zh="1 · 构建插件">1 · Build the plugin</h3>
+        <h3 data-en="1 · Install the plugin" data-zh="1 · 安装插件">1 · Install the plugin</h3>
         <div class="code-card">
           <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
-<pre><span class="k">git clone</span> https://github.com/LAU-MARS/dsh-cad.git
-<span class="k">cd</span> dsh-cad
-npm install &amp;&amp; npm run build &amp;&amp; npm test</pre>
+<pre><span class="k">dsh plugin</span> --profile web add dsh-cad   <span class="c"># published on npm</span></pre>
         </div>
       </div>
       <div>
-        <h3 data-en="2 · Register &amp; launch" data-zh="2 · 注册并启动">2 · Register &amp; launch</h3>
+        <h3 data-en="2 · Prerequisites &amp; launch" data-zh="2 · 准备并启动">2 · Prerequisites &amp; launch</h3>
         <div class="code-card">
           <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
 <pre><span class="k">npm i -g</span> @deepseek-ai/dsh pnpm  <span class="c"># Node ≥ 22</span>
 <span class="k">dsh web</span>                            <span class="c"># init profile, Ctrl-C</span>
-<span class="k">dsh plugin</span> --profile web add /path/to/dsh-cad
+<span class="k">dsh plugin</span> --profile web add dsh-cad
 <span class="k">dsh web</span>   <span class="c"># set DEEPSEEK_API_KEY, then chat</span></pre>
         </div>
       </div>
@@ -269,21 +267,19 @@ npm install &amp;&amp; npm run build &amp;&amp; npm test</pre>
     </div>
     <div class="start-grid">
       <div>
-        <h3 data-en="1 · Build the plugin" data-zh="1 · 构建插件">1 · Build the plugin</h3>
+        <h3 data-en="1 · Install the plugin" data-zh="1 · 安装插件">1 · Install the plugin</h3>
         <div class="code-card">
           <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
-<pre><span class="k">git clone</span> https://github.com/LAU-MARS/dsh-cad.git
-<span class="k">cd</span> dsh-cad
-npm install &amp;&amp; npm run build &amp;&amp; npm test</pre>
+<pre><span class="k">dsh plugin</span> --profile web add dsh-cad   <span class="c"># published on npm</span></pre>
         </div>
       </div>
       <div>
-        <h3 data-en="2 · Register &amp; launch" data-zh="2 · 注册并启动">2 · Register &amp; launch</h3>
+        <h3 data-en="2 · Prerequisites &amp; launch" data-zh="2 · 准备并启动">2 · Prerequisites &amp; launch</h3>
         <div class="code-card">
           <div class="bar"><span class="dot r"></span><span class="dot y"></span><span class="dot g"></span><span class="fname">terminal</span></div>
 <pre><span class="k">npm i -g</span> @deepseek-ai/dsh pnpm  <span class="c"># Node ≥ 22</span>
 <span class="k">dsh web</span>                            <span class="c"># init profile, Ctrl-C</span>
-<span class="k">dsh plugin</span> --profile web add /path/to/dsh-cad
+<span class="k">dsh plugin</span> --profile web add dsh-cad
 <span class="k">dsh web</span>   <span class="c"># set DEEPSEEK_API_KEY, then chat</span></pre>
         </div>
       </div>

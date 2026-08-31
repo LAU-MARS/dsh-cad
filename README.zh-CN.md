@@ -3,6 +3,7 @@
 ![dsh-cad banner](docs/img/banner.svg)
 
 [![homepage](https://img.shields.io/badge/homepage-dsh--cad-4D6BFE)](https://lau-mars.github.io/dsh-cad/)
+[![npm](https://img.shields.io/npm/v/dsh-cad)](https://www.npmjs.com/package/dsh-cad)
 [![dsh plugin](https://img.shields.io/badge/dsh-plugin-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
 [![OCCT](https://img.shields.io/badge/kernel-OCCT-4D6BFE)](https://github.com/donalffons/opencascade.js)
@@ -39,7 +40,24 @@
 | 🖼️ 图片 → 轮廓 | PNG 草图/截图 → Otsu 二值化 → 轮廓追踪 → 可直接拉伸的多边形（`cad_image_profile`） |
 | 🔌 FreeCAD 执行器 | 在外部 FreeCAD 控制台运行同一 op 族（STEP 输入/输出闭环）；需本地安装 |
 
-## 安装（开发模式）
+## 安装
+
+插件已发布到 npm，一行命令即可：
+
+```sh
+dsh plugin --profile web add dsh-cad
+```
+
+安装器会通过 `dsh.bundle` 清单自动应用包内自带的 `cordis.patch.yml`，无需手工改任何配置。
+
+### 版本要求
+
+- **Node.js** ≥ 22
+- **dsh CLI**（`@deepseek-ai/dsh`）：本项目开发基于 **0.1.0-rc.7**
+  （最低支持版本，已在 `package.json` 的 `engines` 字段声明）；
+  建议 **≥ 0.1.1-rc.2**（2026-08-31 实测通过）
+
+### 从源码安装（开发模式）
 
 ```sh
 git clone https://github.com/LAU-MARS/dsh-cad.git
@@ -51,20 +69,10 @@ dsh web                                  # 首次启动初始化 profile 后 Ctr
 
 dsh plugin --profile web add /path/to/dsh-cad
 
-# ~/.dsh/profiles/web/cordis.patch.yml 追加：
-#   - insert:
-#       - id: dsh-cad
-#         name: 'dsh-cad'
-
 dsh web
 ```
 
-### 版本要求
-
-- **Node.js** ≥ 22
-- **dsh CLI**（`@deepseek-ai/dsh`）：本项目开发基于 **0.1.0-rc.7**
-  （最低支持版本，已在 `package.json` 的 `engines` 字段声明）；
-  建议 **≥ 0.1.1-rc.2**（2026-08-31 实测通过）
+patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同一条 `dsh.bundle` 清单自动应用。
 
 设置 `DEEPSEEK_API_KEY` 后对话即可使用，例如：
 

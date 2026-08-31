@@ -3,6 +3,7 @@
 ![dsh-cad banner](docs/img/banner.svg)
 
 [![homepage](https://img.shields.io/badge/homepage-dsh--cad-4D6BFE)](https://lau-mars.github.io/dsh-cad/)
+[![npm](https://img.shields.io/npm/v/dsh-cad)](https://www.npmjs.com/package/dsh-cad)
 [![dsh plugin](https://img.shields.io/badge/dsh-plugin-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
 [![OCCT](https://img.shields.io/badge/kernel-OCCT-4D6BFE)](https://github.com/donalffons/opencascade.js)
@@ -41,7 +42,24 @@ switchable demo parts (bracket / flange / shaft):
 | 🖼️ Image → profile | PNG sketch/screenshot → Otsu binarization → contour tracing → extrusion-ready polygon (`cad_image_profile`) |
 | 🔌 FreeCAD executor | Run the same op family on an external FreeCAD console (STEP in/out); requires a local FreeCAD install |
 
-## Installation (dev mode)
+## Installation
+
+The plugin is published to npm — one line:
+
+```sh
+dsh plugin --profile web add dsh-cad
+```
+
+The installer applies the bundled `cordis.patch.yml` (declared in the `dsh.bundle` manifest) automatically, so there is nothing to configure by hand.
+
+### Version requirements
+
+- **Node.js** ≥ 22
+- **dsh CLI** (`@deepseek-ai/dsh`): this plugin is developed against **0.1.0-rc.7**
+  (minimum supported version, declared in the `engines` field of `package.json`);
+  recommended **≥ 0.1.1-rc.2** (verified 2026-08-31)
+
+### Install from source (dev mode)
 
 ```sh
 git clone https://github.com/LAU-MARS/dsh-cad.git
@@ -53,20 +71,10 @@ dsh web                                  # let the first launch init the profile
 
 dsh plugin --profile web add /path/to/dsh-cad
 
-# append to ~/.dsh/profiles/web/cordis.patch.yml:
-#   - insert:
-#       - id: dsh-cad
-#         name: 'dsh-cad'
-
 dsh web
 ```
 
-### Version requirements
-
-- **Node.js** ≥ 22
-- **dsh CLI** (`@deepseek-ai/dsh`): this plugin is developed against **0.1.0-rc.7**
-  (minimum supported version, declared in the `engines` field of `package.json`);
-  recommended **≥ 0.1.1-rc.2** (verified 2026-08-31)
+The patch insert ships as `cordis.patch.yml` in the package root and is applied by the installer via the same `dsh.bundle` manifest.
 
 Set `DEEPSEEK_API_KEY` and you are ready — for example:
 
