@@ -46,7 +46,7 @@ git clone https://github.com/LAU-MARS/dsh-cad.git
 cd dsh-cad
 npm install && npm run build && npm test
 
-npm install -g @deepseek-ai/dsh pnpm   # requires Node ≥ 22
+npm install -g @deepseek-ai/dsh@^0.1.1-rc.2 pnpm   # requires Node ≥ 22
 dsh web                                  # let the first launch init the profile, then Ctrl-C
 
 dsh plugin --profile web add /path/to/dsh-cad
@@ -58,6 +58,13 @@ dsh plugin --profile web add /path/to/dsh-cad
 
 dsh web
 ```
+
+### Version requirements
+
+- **Node.js** ≥ 22
+- **dsh CLI** (`@deepseek-ai/dsh`): this plugin is developed against **0.1.0-rc.7**
+  (minimum supported version, declared in the `engines` field of `package.json`);
+  recommended **≥ 0.1.1-rc.2** (verified 2026-08-31)
 
 Set `DEEPSEEK_API_KEY` and you are ready — for example:
 

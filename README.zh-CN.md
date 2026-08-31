@@ -44,7 +44,7 @@ git clone https://github.com/LAU-MARS/dsh-cad.git
 cd dsh-cad
 npm install && npm run build && npm test
 
-npm install -g @deepseek-ai/dsh pnpm   # 需要 Node ≥ 22
+npm install -g @deepseek-ai/dsh@^0.1.1-rc.2 pnpm   # 需要 Node ≥ 22
 dsh web                                  # 首次启动初始化 profile 后 Ctrl-C
 
 dsh plugin --profile web add /path/to/dsh-cad
@@ -56,6 +56,13 @@ dsh plugin --profile web add /path/to/dsh-cad
 
 dsh web
 ```
+
+### 版本要求
+
+- **Node.js** ≥ 22
+- **dsh CLI**（`@deepseek-ai/dsh`）：本项目开发基于 **0.1.0-rc.7**
+  （最低支持版本，已在 `package.json` 的 `engines` 字段声明）；
+  建议 **≥ 0.1.1-rc.2**（2026-08-31 实测通过）
 
 设置 `DEEPSEEK_API_KEY` 后对话即可使用，例如：
 
