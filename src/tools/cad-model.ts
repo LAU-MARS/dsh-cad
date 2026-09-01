@@ -283,7 +283,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
   const renderDrawing = (value: Record<string, unknown>): string => {
     const lines = [
-      `工程图 ${String(value.target)}: 主视图/俯视图/左视图/轴测 · 比例 ${String(value.scaleText ?? '')} · ${String(value.entities)} 实体 (version ${String(value.version)})`,
+      `工程图 ${String(value.target)}: 主视图/俯视图/左视图/轴测 · OCCT 真实消隐 · 比例 ${String(value.scaleText ?? '')} · ${String(value.entities)} 实体 (version ${String(value.version)})`,
     ]
     if (value.filePath !== undefined) lines.push(`written: ${String(value.filePath)}`)
     return lines.join('\n')

@@ -31,7 +31,7 @@
 | 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
 | 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
 | 🗂️ Codex 式文档页签 | 右侧显示区页签栏 + 「+」菜单：**零件**（Part Studio，默认）/ **装配体**（实例插入/移动/移除）/ **工程图**（真实隐藏线图纸），页签可关闭、常驻不丢状态 |
-| 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，网格投影隐藏线消除（虚线）、图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
+| 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，**occt.ts** 内核（npm 依赖，OCCT 7.9）真实隐藏线消除（虚线）；图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
 | 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
 | 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |
 | 🖥️ 常驻 CAD 显示区 | 会话页右侧常驻面板：Codex 式页签（零件 / 装配体 / 工程图），建模时实时跟踪最新模型 |
@@ -62,7 +62,7 @@ dsh plugin --profile web add dsh-cad
 ```sh
 git clone https://github.com/LAU-MARS/dsh-cad.git
 cd dsh-cad
-npm install && npm run build && npm test
+npm install && npm run build && npm test   # 依赖含 occt.ts（工程图真实消隐内核，~20MB wasm）
 
 npm install -g @deepseek-ai/dsh@^0.1.1-rc.2 pnpm   # 需要 Node ≥ 22
 dsh web                                  # 首次启动初始化 profile 后 Ctrl-C
@@ -144,6 +144,14 @@ cad_view(path)                        建模工具（cad_create_prim 等）
 - **直通管道**：建模场景零 base64 / 零 JSON 大数组 / 零每步落盘（磁盘镜像 1.5s 防抖，
   仅服务重启回放）；`cad_export` 是唯一的显式文件导出
 - **建模文档**：`<workspace>/.dsh-cad/model.json` 操作日志，重启后重放恢复全部 body
+- **工程图消隐内核**：隐藏线由 **occt.ts**（npm 依赖，`npm i occt.ts`）执行
+  真实 OCCT 消隐，无替代引擎、缺失即报错。相对 opencascade.js 的新增 API：
+  `hiddenLines()` 真实消隐线、STEP/BRep 字节级 `readStep`/`readBrep`/`writeStep`/
+  `writeBrep`（无需 MEMFS）、自带特征边提取的网格化、`hasError()`/`lastError()`
+  错误契约。几何以 STEP 字节跨内核交换，投影线段重映射进图纸坐标系。内核 dist
+  解析顺序：`DSH_OCCTJS_DIST` 环境变量 → `node_modules/occt.ts/dist`（npm，
+  默认）→ `<repo>/../opencascade-ts/dist`（兄弟检出）→ `vendor/` →
+  `node_modules/opencascade-ts`
 - **客户端**：esbuild 单文件 CJS 工厂（three.js 内联 ~560KB，react 由宿主模块表提供），
   Z-up CAD 惯例，带 XYZ 轴标签与地面网格的空场景常驻显示
 

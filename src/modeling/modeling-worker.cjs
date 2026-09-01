@@ -13,7 +13,7 @@ const path = require('node:path')
 const fs = require('node:fs')
 const { createRequire } = require('node:module')
 const { createAdapter } = require('./occt-adapter.cjs')
-const { projectViews } = require('./hlr.cjs')
+const { createOcctBridge } = require('./occt-bridge.cjs')
 
 const require3 = createRequire(__filename)
 // The ES6 emscripten build reads a global __dirname when its factory runs.
@@ -62,7 +62,7 @@ function meshOf(shape, name) {
   }
 }
 
-function applyOp(op) {
+async function applyOp(op) {
   switch (op.kind) {
     case 'create_prim': {
       const bodyId = op.bodyId
@@ -125,13 +125,7 @@ function applyOp(op) {
       return { bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
     }
     case 'drawing': {
-      const body = bodies.get(op.target)
-      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
-      // Finer tessellation for drawings: hidden-line views are judged at
-      // silhouette accuracy, not screen-approximation accuracy.
-      const { positions, indices } = adapter.tessellate(body.shape, 0.1)
-      const views = Array.isArray(op.views) && op.views.length > 0 ? op.views : DEFAULT_DRAWING_VIEWS
-      return { views: projectViews({ positions, indices }, views).views }
+      return drawingViews(op)
     }
     case 'assembly_insert': {
       const body = bodies.get(op.bodyId)
@@ -204,14 +198,50 @@ const DEFAULT_DRAWING_VIEWS = [
   { name: 'iso', dir: [1, -1, 1], xDir: [1, 1, 0] },
 ]
 
+/**
+ * The occt.ts kernel (true OCCT hidden-line removal) — the one and only
+ * drawing engine. Lazily loaded on the first drawing op and cached,
+ * including failures, so a missing dist costs one filesystem probe per
+ * worker, not per drawing.
+ */
+let occtBridge = null
+let occtBridgeTried = false
+async function getOcctBridge() {
+  if (occtBridgeTried) return occtBridge
+  occtBridgeTried = true
+  try {
+    occtBridge = await createOcctBridge()
+    if (occtBridge !== null) {
+      console.log(`[dsh-cad] occt.ts kernel loaded (OCCT ${occtBridge.occtVersion}) from ${occtBridge.distDir}`)
+    }
+  } catch (error) {
+    console.warn(`[dsh-cad] occt.ts kernel failed to load: ${error instanceof Error ? error.message : error}`)
+    occtBridge = null
+  }
+  return occtBridge
+}
+
+async function drawingViews(op) {
+  const body = bodies.get(op.target)
+  if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+  const views = Array.isArray(op.views) && op.views.length > 0 ? op.views : DEFAULT_DRAWING_VIEWS
+  const bridge = await getOcctBridge()
+  if (bridge === null) {
+    throw new Error('the occt.ts kernel is required for engineering drawings but was not found — install it (npm i occt.ts) or point DSH_OCCTJS_DIST at a dist directory')
+  }
+  const stepBytes = adapter.exportFile(body.shape, 'step')
+  const projected = await bridge.hiddenLineViews(stepBytes, views)
+  return { views: projected.views }
+}
+
 const initOpenCascade = loaderModule.default ?? loaderModule
 initOpenCascade({ wasmBinary }).then((instance) => {
   occt = instance
   adapter = createAdapter(occt)
-  parentPort.on('message', (message) => {
+  parentPort.on('message', async (message) => {
     const transfers = []
     try {
-      const result = applyOp(message.op)
+      const result = await applyOp(message.op)
       // Collect transferable mesh buffers.
       const collect = (mesh) => {
         if (mesh === undefined) return

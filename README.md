@@ -33,7 +33,7 @@ switchable demo parts (bracket / flange / shaft):
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives (box/cylinder/sphere/cone/torus), profile extrusion, booleans (fuse/cut/common), all-edge fillet, transforms (translate/rotate/mirror) — exact OCCT BRep, not a mesh approximation |
 | 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
-| 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, mesh-projected hidden-line removal (dashed), sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
+| 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, true OCCT hidden-line removal via the **occt.ts** kernel (an npm dependency, dashed); sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
 | 📐 Geometry measurement | Exact volume (mm³), bounding box, triangle counts, DXF layers |
 | 📤 On-demand export | STEP (parametric) / STL (mesh); files are written only when the user asks |
 | 🖥️ Resident CAD panel | A permanent panel right of the conversation: Codex-style tabs (Part / Assembly / Drawing), tracking the latest model in real time while modeling |
@@ -64,7 +64,7 @@ The installer applies the bundled `cordis.patch.yml` (declared in the `dsh.bundl
 ```sh
 git clone https://github.com/LAU-MARS/dsh-cad.git
 cd dsh-cad
-npm install && npm run build && npm test
+npm install && npm run build && npm test   # deps include occt.ts (true-HLR drawing kernel, ~20MB wasm)
 
 npm install -g @deepseek-ai/dsh@^0.1.1-rc.2 pnpm   # requires Node ≥ 22
 dsh web                                  # let the first launch init the profile, then Ctrl-C
@@ -153,6 +153,16 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   restart); `cad_export` is the only explicit file export
 - **Modeling document**: `<workspace>/.dsh-cad/model.json` operation log; all bodies
   are restored by replay after a restart
+- **Drawing HLR kernel**: hidden lines run on **occt.ts** (npm dependency,
+  `npm i occt.ts`) — true OCCT removal, no fallback engine, a missing kernel is
+  a hard error. New APIs over opencascade.js: `hiddenLines()` true hidden-line
+  removal, byte-level STEP/BRep `readStep`/`readBrep`/`writeStep`/`writeBrep`
+  without MEMFS, tessellation with built-in feature-edge extraction, and a
+  `hasError()`/`lastError()` error contract. Geometry crosses kernels as STEP
+  bytes and the projected segments are remapped into the sheet frame. Kernel
+  dist resolution: `DSH_OCCTJS_DIST` env var → `node_modules/occt.ts/dist`
+  (npm, default) → `<repo>/../opencascade-ts/dist` (sibling checkout) → `vendor/`
+  → `node_modules/opencascade-ts`
 - **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
   by the host module table), Z-up CAD convention, empty scene with XYZ axis labels
   and a ground grid always displayed
