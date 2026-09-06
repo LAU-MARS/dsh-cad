@@ -33,6 +33,7 @@ switchable demo parts (bracket / flange / shaft):
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives (box/cylinder/sphere/cone/torus), profile extrusion, booleans (fuse/cut/common), all-edge fillet, transforms (translate/rotate/mirror) — exact OCCT BRep, not a mesh approximation |
 | 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
+| 📁 Multi-document file space | Named documents per workspace (`.dsh-cad/docs/`), each session bound to its own active document — new sessions start empty instead of inheriting leftovers; a folder button in the panel lists every document (preview / delete), and `cad_doc_new` / `cad_doc_open` manage the modeling target from chat |
 | 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, true OCCT hidden-line removal via the **occt.ts** kernel (an npm dependency, dashed); sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
 | 📐 Geometry measurement | Exact volume (mm³), bounding box, triangle counts, DXF layers |
 | 📤 On-demand export | STEP (parametric) / STL (mesh); files are written only when the user asks |
@@ -105,6 +106,11 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_assembly_remove` | Remove an instance from the assembly (the body stays) |
 | `cad_export` | Export STEP / STL / DCPRT (the native replayable part document) to a workspace path; `target: "assembly"` writes the assembly STEP, `target: "drawing"` writes the sheet as SVG / DXF |
 | `cad_delete` | Delete a body |
+| `cad_docs` | List the workspace's modeling documents (id / name / bodies / updated, active marked) |
+| `cad_doc_new` | Create a named document and make it the session's modeling target (start multi-part projects here) |
+| `cad_doc_open` | Open an existing document (by id or name) as the session's modeling target — bodies replay exactly |
+| `cad_doc_rename` | Rename a document |
+| `cad_doc_delete` | Permanently delete a document (requires `confirm: true`) |
 | `cad_freecad` | Run an op program on an external FreeCAD executor (optional STEP input / export) |
 | `cad_fusion` | Run an op program on an external Fusion 360 executor (GUI bridge; optional export) |
 | `cad_image_profile` | PNG → contours → extrusion-ready polygon points |

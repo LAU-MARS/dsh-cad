@@ -10,7 +10,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { SceneStore } from './store.js'
 import { BinarySceneStore } from './modeling/bin-store.js'
-import { registerSceneRoute, registerBinRoute, registerDemoRoute } from './routes.js'
+import { DocumentRegistry } from './modeling/registry.js'
+import { registerSceneRoute, registerBinRoute, registerDemoRoute, registerDocsRoute, registerDocsDeleteRoute } from './routes.js'
 import type { SceneRoute } from './routes.js'
 import { createCadViewTool } from './tools/cad-view.js'
 import { createCadInfoTool } from './tools/cad-info.js'
@@ -33,6 +34,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const root = config.root ?? process.cwd()
   const store = new SceneStore(root)
   const binStore = new BinarySceneStore(root)
+  const registry = new DocumentRegistry(process.cwd())
   const workspaceRoot = process.cwd()
 
   let routeRegistered = false
@@ -47,6 +49,8 @@ export function apply(ctx: Context, config: Config = {}): void {
     registerSceneRoute(server, store)
     registerBinRoute(server, binStore)
     registerDemoRoute(server)
+    registerDocsRoute(server, registry, binStore)
+    registerDocsDeleteRoute(server, registry)
     routeRegistered = true
     return '/dsh-cad/scene'
   }
@@ -75,7 +79,7 @@ export function apply(ctx: Context, config: Config = {}): void {
 
   const cadView = createCadViewTool({ store, workspaceRoot, ensureSceneRoute })
   const cadInfo = createCadInfoTool({ workspaceRoot })
-  const modelTools = createModelTools({ store: binStore, sceneStore: store, workspaceRoot, ensureSceneRoute })
+  const modelTools = createModelTools({ store: binStore, sceneStore: store, workspaceRoot, ensureSceneRoute, registry })
   const cadFreeCad = createFreeCadTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadFusion = createFusionTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadImage = createCadImageTool({ store, workspaceRoot, ensureSceneRoute })

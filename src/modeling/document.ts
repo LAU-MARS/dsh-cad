@@ -1,5 +1,5 @@
 /**
- * Modeling document: an operation log (JSON) per workspace that both persists
+ * Modeling document: an operation log (JSON) that both persists
  * across restarts and is the unit of replay — restart recovery re-applies the
  * log to a fresh worker, which is what makes the worker's in-memory shapes
  * disposable.
@@ -21,18 +21,32 @@ export interface ModelDoc {
 
 export class ModelDocument {
   readonly root: string
-  doc: ModelDoc = { docId: randomUUID(), version: 0, ops: [], bodyNames: {} }
+  doc: ModelDoc
 
-  constructor(root: string) {
+  /**
+   * @param docId Registry-assigned document id. With an id the document lives
+   *   at `<root>/.dsh-cad/docs/<docId>.json`; without one it keeps the legacy
+   *   single-document path `<root>/.dsh-cad/model.json` (tests, migration).
+   */
+  constructor(root: string, docId?: string) {
     this.root = root
+    this.legacy = docId === undefined
+    this.doc = { docId: docId ?? randomUUID(), version: 0, ops: [], bodyNames: {} }
   }
 
-  private get directory(): string {
+  /** True when this instance owns the legacy single-document path. */
+  private readonly legacy: boolean
+
+  private get base(): string {
     return path.join(this.root, '.dsh-cad')
   }
 
+  private get directory(): string {
+    return this.legacy ? this.base : path.join(this.base, 'docs')
+  }
+
   private get file(): string {
-    return path.join(this.directory, 'model.json')
+    return this.legacy ? path.join(this.base, 'model.json') : path.join(this.base, 'docs', `${this.doc.docId}.json`)
   }
 
   /** Load the persisted document if one exists. */
@@ -57,6 +71,12 @@ export class ModelDocument {
       const removed = op.kind === 'delete' ? [op.target] : op.tools
       for (const id of removed) delete this.doc.bodyNames[id]
     }
+    await mkdir(this.directory, { recursive: true })
+    await writeFile(this.file, JSON.stringify(this.doc))
+  }
+
+  /** Persist the current state without appending an op (registry creation). */
+  async save(): Promise<void> {
     await mkdir(this.directory, { recursive: true })
     await writeFile(this.file, JSON.stringify(this.doc))
   }

@@ -17,8 +17,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import type { CadViewMeta } from './scene-types.js'
 import { mountCadEditor3D } from './viewer3d.js'
-import type { CadEditorHandle, DemoPart, RenderMode } from './viewer3d.js'
-import { readKind, readLatest, subscribeLatest, useScene, Viewport, RENDER_MODES, RENDER_MODE_LABELS, styles } from './viewport.js'
+import { readKind, readLatest, subscribeLatest, useScene, Viewport } from './viewport.js'
 import type { DocKind } from './viewport.js'
 
 // ── harness services (structural, defensive) ────────────────────────────────
@@ -168,6 +167,38 @@ function useTabs(): { tabs: PanelTab[]; active: DocKind | null } {
   )
 }
 
+// ── preview document store (module level, same pattern as the tab store) ────
+
+/** A document picked from the file list, previewed in the Part tab. */
+interface PreviewDoc {
+  docId: string
+  name: string
+  sceneUrl: string
+}
+
+let previewDocState: PreviewDoc | null = null
+let previewSnapshot: PreviewDoc | null = previewDocState
+const previewListeners = new Set<() => void>()
+
+function setPreviewDoc(next: PreviewDoc | null): void {
+  previewDocState = next
+  previewSnapshot = next
+  for (const listener of previewListeners) listener()
+}
+
+function usePreviewDoc(): PreviewDoc | null {
+  return useSyncExternalStore(
+    (onChange) => {
+      previewListeners.add(onChange)
+      return () => {
+        previewListeners.delete(onChange)
+      }
+    },
+    () => previewSnapshot,
+    () => previewSnapshot,
+  )
+}
+
 // ── icons (inline SVG, 14px) ─────────────────────────────────────────────────
 
 const ICON_STROKE = 'currentColor'
@@ -203,6 +234,25 @@ function TabIcon({ kind }: { kind: DocKind }): JSX.Element {
   if (kind === 'assembly') return <AssemblyIcon />
   if (kind === 'drawing') return <DrawingIcon />
   return <PartIcon />
+}
+
+/** Folder glyph for the file-space (document list) button. */
+function FolderIcon(): JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M1.5 4.5A1 1 0 0 1 2.5 3.5h3.2l1.4 1.8h6.4a1 1 0 0 1 1 1v6.2a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4.5Z" stroke={ICON_STROKE} strokeWidth="1.3" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+/** Document glyph for file-list rows. */
+function DocIcon(): JSX.Element {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" aria-hidden>
+      <path d="M4 1.5h5l3 3v10H4v-13Z" stroke={ICON_STROKE} strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M9 1.5v3h3" stroke={ICON_STROKE} strokeWidth="1.2" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
 // ── frame geometry (docking + yielding) ──────────────────────────────────────
@@ -347,6 +397,134 @@ function NewTabMenu({ onPick, onClose }: { onPick: (kind: DocKind) => void; onCl
   )
 }
 
+// ── the file-space (documents) menu ─────────────────────────────────────────
+
+interface DocsEntry {
+  id: string
+  name: string
+  bodies: number
+  updatedAt: string
+  sceneUrl?: string
+}
+
+/** Compact relative time for the file list (刚刚 / 5 分钟前 / 3 天前). */
+function relTime(iso: string): string {
+  const ms = Date.now() - Date.parse(iso)
+  if (!Number.isFinite(ms)) return ''
+  const minutes = Math.floor(ms / 60_000)
+  if (minutes < 1) return '刚刚'
+  if (minutes < 60) return `${minutes} 分钟前`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时前`
+  return `${Math.floor(hours / 24)} 天前`
+}
+
+function DocsMenu({ activeDocId, onClose }: { activeDocId: string | null; onClose: () => void }): JSX.Element {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [entries, setEntries] = useState<DocsEntry[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
+  useEffect(() => {
+    const onPointerDown = (event: PointerEvent): void => {
+      if (ref.current !== null && event.target instanceof Node && ref.current.contains(event.target)) return
+      onClose()
+    }
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') onClose()
+    }
+    document.addEventListener('pointerdown', onPointerDown, true)
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown, true)
+      document.removeEventListener('keydown', onKeyDown)
+    }
+  }, [onClose])
+
+  const refresh = useCallback((): void => {
+    setEntries(null)
+    setError(null)
+    fetch('/dsh-cad/docs')
+      .then((response) => (response.ok ? (response.json() as Promise<{ docs?: DocsEntry[] }>) : Promise.reject(new Error(`HTTP ${response.status}`))))
+      .then((payload) => { setEntries(payload.docs ?? []) })
+      .catch((cause: unknown) => { setError(cause instanceof Error ? cause.message : String(cause)) })
+  }, [])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  const deleteDoc = (id: string): void => {
+    setBusyId(id)
+    fetch(`/dsh-cad/docs/delete?id=${encodeURIComponent(id)}`, { method: 'POST' })
+      .then(() => {
+        setConfirmingId(null)
+        if (previewSnapshot?.docId === id) setPreviewDoc(null)
+        refresh()
+      })
+      .catch((cause: unknown) => { setError(cause instanceof Error ? cause.message : String(cause)) })
+      .finally(() => { setBusyId(null) })
+  }
+
+  return (
+    <div ref={ref} style={panelStyles.menu} role="menu" aria-label="文档列表">
+      <div style={panelStyles.docsHeader}>工作区文档</div>
+      {error !== null ? <div style={panelStyles.docsError}>{error}</div> : null}
+      {entries === null && error === null ? <div style={panelStyles.docsHintRow}>加载中…</div> : null}
+      {entries !== null && entries.length === 0 ? (
+        <div style={panelStyles.docsHintRow}>还没有建模文档 — 在对话中建模后会出现在这里</div>
+      ) : null}
+      {entries?.map((doc) => {
+        const isActive = doc.id === activeDocId
+        return (
+          <div key={doc.id} style={panelStyles.docRow}>
+            <button
+              type="button"
+              role="menuitem"
+              style={panelStyles.docRowMain}
+              onClick={() => {
+                if (doc.sceneUrl !== undefined) {
+                  setPreviewDoc({ docId: doc.id, name: doc.name, sceneUrl: doc.sceneUrl })
+                  ensureTab('part')
+                  onClose()
+                }
+              }}
+              title={doc.sceneUrl === undefined ? '空文档（无场景）' : '点击预览'}
+            >
+              <span style={panelStyles.menuIcon}><DocIcon /></span>
+              <span style={{ ...panelStyles.menuLabel, ...(isActive ? { color: 'var(--dsw-alias-label-primary,#4d6bfe)', fontWeight: 600 } : {}) }}>
+                {doc.name}
+                {isActive ? ' · 当前' : ''}
+              </span>
+              <span style={panelStyles.menuHint}>{doc.bodies} 体 · {relTime(doc.updatedAt)}</span>
+            </button>
+            {confirmingId === doc.id ? (
+              <span style={panelStyles.docConfirm}>
+                <button type="button" style={panelStyles.docConfirmYes} disabled={busyId === doc.id} onClick={() => { deleteDoc(doc.id) }}>
+                  删除
+                </button>
+                <button type="button" style={panelStyles.docConfirmNo} onClick={() => { setConfirmingId(null) }}>
+                  取消
+                </button>
+              </span>
+            ) : (
+              <button
+                type="button"
+                style={panelStyles.docDelete}
+                aria-label={`删除文档 ${doc.name}`}
+                title="删除文档"
+                onClick={() => { setConfirmingId(doc.id) }}
+              >
+                ×
+              </button>
+            )}
+          </div>
+        )
+      })}
+      <div style={panelStyles.docsFooter}>点击预览 · 切换建模目标请在对话中说「打开 xx 文档」</div>
+    </div>
+  )
+}
+
 // ── the panel ────────────────────────────────────────────────────────────────
 
 /** Build the overlay entry component with the host sessions service in scope. */
@@ -356,6 +534,7 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
     const [expanded, setExpanded] = useState(true)
     const [width, setWidth] = useState(PANEL_DEFAULT)
     const [menuOpen, setMenuOpen] = useState(false)
+    const [docsOpen, setDocsOpen] = useState(false)
     const geometry = useDockGeometry(rootRef)
     const metas = useKindMetas(props.useSessions, sessions)
     const { tabs, active } = useTabs()
@@ -438,11 +617,21 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
                   style={panelStyles.addTab}
                   aria-label="新建文档"
                   title="新建：零件 / 装配体 / 工程图"
-                  onClick={() => { setMenuOpen((open) => !open) }}
+                  onClick={() => { setDocsOpen(false); setMenuOpen((open) => !open) }}
                 >
                   +
                 </button>
               </div>
+              <button
+                type="button"
+                style={panelStyles.fileButton}
+                aria-label="文档列表"
+                aria-expanded={docsOpen}
+                title="工作区文档列表（预览 / 删除）"
+                onClick={() => { setMenuOpen(false); setDocsOpen((open) => !open) }}
+              >
+                <FolderIcon />
+              </button>
               <span style={panelStyles.headerStats}>{activeMeta === null ? '' : statsLine(activeMeta)}</span>
               <button
                 type="button"
@@ -461,6 +650,12 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
                   ensureTab(kind)
                 }}
                 onClose={() => { setMenuOpen(false) }}
+              />
+            ) : null}
+            {docsOpen ? (
+              <DocsMenu
+                activeDocId={metas.part?.viewId ?? null}
+                onClose={() => { setDocsOpen(false) }}
               />
             ) : null}
             <div style={panelStyles.body}>
@@ -511,13 +706,35 @@ function useCenterColumnYield(
 
 // ── tab bodies ───────────────────────────────────────────────────────────────
 
-/** 零件 (Part Studio): the demo editor before any model, then live tracking. */
+/** 零件 (Part Studio): an empty editor before any model, then live tracking.
+ * A document picked in the file list overrides the tab until the session
+ * produces a new CAD result (auto-return to live tracking). */
 function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
-  const { scene, error } = useScene(meta?.sceneUrl)
-  if (meta === null) return <DemoEditorState />
+  const preview = usePreviewDoc()
+  const live = useScene(meta?.sceneUrl)
+  const previewScene = useScene(preview?.sceneUrl)
+
+  useEffect(() => {
+    if (meta !== null && previewSnapshot !== null) setPreviewDoc(null)
+  }, [meta?.sceneUrl])
+
+  if (preview !== null) {
+    return (
+      <div style={panelStyles.sceneFill}>
+        <div style={panelStyles.previewBar}>
+          <span style={panelStyles.previewLabel}>预览: {preview.name}</span>
+          <button type="button" style={panelStyles.previewBack} onClick={() => { setPreviewDoc(null) }}>
+            返回跟踪
+          </button>
+        </div>
+        <Viewport scene={previewScene.scene} error={previewScene.error} fill />
+      </div>
+    )
+  }
+  if (meta === null) return <EmptyPartStudio />
   return (
     <div key={meta.sceneUrl ?? meta.viewId} style={panelStyles.sceneFill}>
-      <Viewport scene={scene} error={error} fill />
+      <Viewport scene={live.scene} error={live.error} fill />
     </div>
   )
 }
@@ -584,79 +801,31 @@ function statsLine(meta: CadViewMeta): string {
   return parts.join(' · ')
 }
 
-/** Demo BRep parts offered in the editor switcher (files: demo-<id>.brep). */
-const DEMO_PARTS: Array<{ id: DemoPart; label: string }> = [
-  { id: 'bracket', label: 'Bracket' },
-  { id: 'flange', label: 'Flange' },
-  { id: 'shaft', label: 'Shaft' },
-]
-
 /**
- * The pre-modeling state: the CAD editor with the demo examples, each parsed
- * from its packaged .brep file by the server-side OCCT (local file ↔ display
- * correspondence). Once the session produces a CAD result the panel swaps to
- * live model tracking.
+ * The pre-modeling state: an empty CAD editor — grid, XYZ axes and the
+ * ViewCube, but no geometry. No demo parts are loaded by default; once the
+ * session produces a CAD result the panel swaps to live model tracking.
  */
-function DemoEditorState(): JSX.Element {
+function EmptyPartStudio(): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const handleRef = useRef<CadEditorHandle | null>(null)
-  const [mode, setMode] = useState<RenderMode>('shaded-edges')
-  const [source, setSource] = useState<'brep' | 'fallback' | 'loading'>('loading')
-  const [part, setPart] = useState<DemoPart>('bracket')
 
   useEffect(() => {
     const container = containerRef.current
     if (container === null) return
-    const handle = mountCadEditor3D(container, { onSource: setSource, part: 'bracket' })
-    handleRef.current = handle
+    const handle = mountCadEditor3D(container, { part: null })
     return () => {
       handle.dispose()
-      handleRef.current = null
     }
-  }, [])
-
-  useEffect(() => {
-    handleRef.current?.setRenderMode(mode)
-  }, [mode])
-
-  const selectPart = (next: DemoPart): void => {
-    if (next === part) return
-    setPart(next)
-    setSource('loading')
-    handleRef.current?.loadPart(next)
-  }
-
-  const cycleMode = useCallback((): void => {
-    setMode((previous) => RENDER_MODES[(RENDER_MODES.indexOf(previous) + 1) % RENDER_MODES.length])
   }, [])
 
   return (
     <div style={panelStyles.demoRoot}>
-      <div style={panelStyles.demoCaption}>
-        CAD editor
-        {source === 'brep' ? ` · demo-${part}.brep` : source === 'fallback' ? ' · 本地兜底' : ' · 加载中…'}
-      </div>
+      <div style={panelStyles.demoCaption}>Part Studio</div>
       <div style={panelStyles.demoViewport}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-        <div style={styles.toolbar}>
-          {DEMO_PARTS.map((entry) => (
-            <button
-              key={entry.id}
-              type="button"
-              style={{ ...styles.button, ...(part === entry.id ? { background: 'var(--dsw-alias-label-primary,#4d6bfe)', color: '#fff', borderColor: 'transparent' } : {}) }}
-              onClick={() => { selectPart(entry.id) }}
-              aria-pressed={part === entry.id}
-            >
-              {entry.label}
-            </button>
-          ))}
-          <button type="button" style={styles.button} onClick={cycleMode} aria-pressed={mode === 'wireframe'}>
-            {RENDER_MODE_LABELS[mode]}
-          </button>
-        </div>
       </div>
       <div style={panelStyles.demoHint}>
-        示例件（支架 / 法兰 / 轴）由本地 .brep 经 OCCT 解析，可切换；悬停/点选面与边查看测量；对话中建模后此页签自动跟踪最新模型
+        建模区为空 · 在对话中描述零件（如「建一个 100×60×10 的板，中间打 ⌀20 孔」），建模后此页签实时跟踪最新模型
       </div>
     </div>
   )
@@ -825,6 +994,134 @@ const panelStyles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     marginLeft: 'auto',
     whiteSpace: 'nowrap',
+  },
+  // ── file space (documents) ───────────────────────────────────────────────
+  fileButton: {
+    flex: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: 24,
+    height: 24,
+    marginLeft: 4,
+    border: '1px solid var(--dsw-alias-border-l2, #c4c9d0)',
+    borderRadius: 6,
+    background: 'transparent',
+    color: 'var(--dsw-alias-label-secondary, #374151)',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  docsHeader: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: 'var(--dsw-alias-label-tertiary, #6b7280)',
+    padding: '5px 9px 3px',
+    letterSpacing: '0.02em',
+  },
+  docsHintRow: {
+    fontSize: 12,
+    color: 'var(--dsw-alias-label-tertiary, #6b7280)',
+    padding: '8px 9px',
+  },
+  docsError: {
+    fontSize: 12,
+    color: 'var(--dsw-alias-state-error-primary, #d92d20)',
+    padding: '4px 9px',
+  },
+  docsFooter: {
+    fontSize: 11,
+    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
+    padding: '5px 9px 3px',
+    borderTop: '1px solid var(--dsw-alias-border-l1, #e2e5ea)',
+    marginTop: 3,
+  },
+  docRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 2,
+  },
+  docRowMain: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    flex: '1 1 auto',
+    minWidth: 0,
+    padding: '7px 9px',
+    border: 'none',
+    borderRadius: 7,
+    background: 'transparent',
+    color: 'var(--dsw-alias-label-primary, #1f2937)',
+    cursor: 'pointer',
+    textAlign: 'left',
+    font: 'inherit',
+    fontSize: 12.5,
+  },
+  docDelete: {
+    flex: 'none',
+    width: 22,
+    height: 22,
+    border: 'none',
+    borderRadius: 6,
+    background: 'transparent',
+    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
+    fontSize: 14,
+    lineHeight: '20px',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  docConfirm: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 4,
+    flex: 'none',
+    padding: '0 4px 0 0',
+  },
+  docConfirmYes: {
+    border: 'none',
+    borderRadius: 6,
+    background: 'var(--dsw-alias-state-error-primary, #d92d20)',
+    color: '#fff',
+    fontSize: 11,
+    padding: '3px 8px',
+    cursor: 'pointer',
+  },
+  docConfirmNo: {
+    border: '1px solid var(--dsw-alias-border-l2, #c4c9d0)',
+    borderRadius: 6,
+    background: 'transparent',
+    color: 'var(--dsw-alias-label-secondary, #374151)',
+    fontSize: 11,
+    padding: '3px 8px',
+    cursor: 'pointer',
+  },
+  previewBar: {
+    flex: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '5px 10px',
+    borderBottom: '1px solid var(--dsw-alias-border-l1, #e2e5ea)',
+    background: 'var(--dsw-alias-bg-subtle, #f5f6f8)',
+  },
+  previewLabel: {
+    flex: '1 1 auto',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+    fontSize: 12,
+    color: 'var(--dsw-alias-label-primary, #1f2937)',
+    fontWeight: 600,
+  },
+  previewBack: {
+    flex: 'none',
+    border: '1px solid var(--dsw-alias-border-l2, #c4c9d0)',
+    borderRadius: 6,
+    background: 'transparent',
+    color: 'var(--dsw-alias-label-secondary, #374151)',
+    fontSize: 11,
+    padding: '2px 8px',
+    cursor: 'pointer',
   },
   headerStats: {
     flex: 'none',

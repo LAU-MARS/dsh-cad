@@ -234,12 +234,12 @@ function buildMesh(mesh: CadMesh | { name: string; color?: number; positions: Fl
 }
 
 /**
- * The CAD editor viewport: the demo example L-bracket parsed from the packaged
- * demo-bracket.brep (served by /dsh-cad/demo-scene), so what is displayed
- * corresponds to the real local BRep file. The client-side extrusion is the
- * instant-paint fallback while the fetch is in flight (or when it fails).
+ * The CAD editor viewport. With `part` set, the demo example parsed from its
+ * packaged .brep (served by /dsh-cad/demo-scene) is loaded, the client-side
+ * extrusion acting as the instant-paint fallback. With `part: null` the editor
+ * starts empty — grid, axes and the ViewCube only, no geometry.
  */
-export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (source: 'brep' | 'fallback') => void; part?: DemoPart } = {}): CadEditorHandle {
+export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (source: 'brep' | 'fallback') => void; part?: DemoPart | null } = {}): CadEditorHandle {
   // onResize re-frames until the user drives the camera — `interacted` and
   // `placeCamera` are declared below, but the observer only fires after the
   // synchronous mount body finished.
@@ -252,13 +252,16 @@ export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (
 
   // cadRoot is stable across the BRep swap: picking and render-mode helpers
   // hold this reference, so replaced children are always the live set.
+  const empty = options.part === null
   const cadRoot = new THREE.Group()
   scene.add(cadRoot)
   let cad = new THREE.Group()
-  cad.add(buildMesh({ name: 'demo-bracket', geometry: demoBracketGeometry() }))
+  if (!empty) cad.add(buildMesh({ name: 'demo-bracket', geometry: demoBracketGeometry() }))
   cadRoot.add(cad)
 
-  let bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } = { ...DEMO_BOUNDS }
+  // Empty editors frame a neutral ~200 mm working area instead of the demo part.
+  const EMPTY_BOUNDS = { min: { x: -100, y: -100, z: 0 }, max: { x: 100, y: 100, z: 100 } }
+  let bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } } = empty ? EMPTY_BOUNDS : { ...DEMO_BOUNDS }
   let size = new THREE.Vector3(
     bounds.max.x - bounds.min.x,
     bounds.max.y - bounds.min.y,
@@ -364,7 +367,7 @@ export function mountCadEditor3D(container: HTMLElement, options: { onSource?: (
         if (!disposed) options.onSource?.(brepLoaded ? 'brep' : 'fallback')
       })
   }
-  loadPart(options.part ?? 'bracket')
+  if (!empty) loadPart(options.part ?? 'bracket')
 
   const frame = (): void => {
     animationId = requestAnimationFrame(frame)

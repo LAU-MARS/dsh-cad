@@ -5,17 +5,22 @@
  * - GET /dsh-cad/demo-scene      — the built-in demo example, parsed from the
  *                                  packaged demo-bracket.brep by OCCT (local
  *                                  file ↔ editor display correspondence)
+ * - GET /dsh-cad/docs            — the workspace document file space (list)
+ * - POST /dsh-cad/docs/delete    — remove a document (panel delete button)
  */
 import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { SceneStore } from './store.js'
 import type { BinarySceneStore } from './modeling/bin-store.js'
+import type { DocumentRegistry } from './modeling/registry.js'
 import { convert } from './convert/index.js'
 
 export const SCENE_ROUTE_PATH = '/dsh-cad/scene'
 export const BIN_ROUTE_PATH = '/dsh-cad/bin'
 export const DEMO_SCENE_ROUTE_PATH = '/dsh-cad/demo-scene'
+export const DOCS_ROUTE_PATH = '/dsh-cad/docs'
+export const DOCS_DELETE_ROUTE_PATH = '/dsh-cad/docs/delete'
 
 /** The built-in demo examples (packaged as lib/demo-<part>.brep). */
 export const DEMO_PARTS = ['bracket', 'flange', 'shaft'] as const
@@ -149,6 +154,81 @@ export function registerDemoRoute(server: { register: (route: SceneRoute) => () 
           etag: cached.etag,
         })
         res.end(cached.body)
+      } catch (cause: unknown) {
+        res.writeHead(500, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) }))
+      }
+    },
+  })
+}
+
+/** Register the docs file-space route: GET /dsh-cad/docs (list documents). */
+export function registerDocsRoute(
+  server: { register: (route: SceneRoute) => () => void },
+  registry: DocumentRegistry,
+  binStore: BinarySceneStore,
+): () => void {
+  return server.register({
+    kind: 'exact',
+    path: DOCS_ROUTE_PATH,
+    handler: async (req: IncomingMessage, res: ServerResponse) => {
+      if (req.method !== 'GET') {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not found' }))
+        return
+      }
+      try {
+        const docs = await registry.list()
+        const entries = await Promise.all(
+          docs.map(async (doc) => ({
+            id: doc.id,
+            name: doc.name,
+            bodies: doc.bodyCount,
+            updatedAt: doc.updatedAt,
+            // Preview URL only when a published scene exists (memory or mirror).
+            ...(await binStore.has(doc.id) ? { sceneUrl: `${BIN_ROUTE_PATH}/${doc.id}` } : {}),
+          })),
+        )
+        const body = Buffer.from(JSON.stringify({ docs: entries }))
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          'content-length': body.length,
+          'cache-control': 'no-store',
+        })
+        res.end(body)
+      } catch (cause: unknown) {
+        res.writeHead(500, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) }))
+      }
+    },
+  })
+}
+
+/** Register the docs delete route: POST /dsh-cad/docs/delete?id=<docId>. */
+export function registerDocsDeleteRoute(
+  server: { register: (route: SceneRoute) => () => void },
+  registry: DocumentRegistry,
+): () => void {
+  return server.register({
+    kind: 'exact',
+    path: DOCS_DELETE_ROUTE_PATH,
+    handler: async (req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url ?? '/', 'http://localhost')
+      const id = url.searchParams.get('id')
+      if (req.method !== 'POST' || id === null || id === '') {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not found' }))
+        return
+      }
+      try {
+        const removed = await registry.remove(id)
+        if (!removed) {
+          res.writeHead(404, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: `unknown document: ${id}` }))
+          return
+        }
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+        res.end(JSON.stringify({ deleted: id }))
       } catch (cause: unknown) {
         res.writeHead(500, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) }))

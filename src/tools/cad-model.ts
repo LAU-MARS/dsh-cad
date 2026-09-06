@@ -16,6 +16,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { runModelOp, workerResetEpoch } from '../modeling/client.js'
 import type { DrawingViewSpec, ModelOp, OpResult, WorkerMesh } from '../modeling/client.js'
 import { ModelDocument } from '../modeling/document.js'
+import { DocumentRegistry } from '../modeling/registry.js'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
 import type { BinMeshData } from '../modeling/bin-format.js'
 import { composeAssemblyMeshes } from '../modeling/assembly.js'
@@ -31,6 +32,8 @@ export interface ModelToolDeps {
   sceneStore: SceneStore
   workspaceRoot: string
   ensureSceneRoute: () => string | null
+  /** The workspace document registry (file space + session bindings). */
+  registry: DocumentRegistry
 }
 
 /** Mirror a worker mesh with its raw typed arrays (binary-transport ready). */
@@ -43,16 +46,19 @@ function mirrorMesh(mesh: WorkerMesh, bodyId: string): BinMeshData {
   }
 }
 
-/** Build the whole tool family over one document + worker + scene store. */
+/** Build the whole tool family over the document registry + worker + stores. */
 export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
-  const document = new ModelDocument(deps.workspaceRoot)
+  // The active document and its derived caches are swapped as a unit whenever
+  // a session's binding points elsewhere (see resolveDoc). meshCache /
+  // drawingSheets are cleared and rebuilt by replay.
+  let document = new ModelDocument(deps.workspaceRoot)
   /** bodyId → raw worker mesh mirror (binary scene source, zero encoding). */
   const meshCache = new Map<string, BinMeshData>()
   /** Reset epoch after the last sync — out-of-band replays (cad_view on a
    *  .dcprt) bump the epoch and force a re-replay before the next op. */
   let syncedEpoch = -1
   /** drawingId → rebuilt sheet (backing cad_export .svg/.dxf). */
-  const drawingSheets = new Map<string, { sheet: DrawingSheet; partName: string }>()
+  let drawingSheets = new Map<string, { sheet: DrawingSheet; partName: string }>()
   let lastDrawingId: string | null = null
 
   /**
@@ -77,32 +83,36 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     return `${salted.slice(0, 8)}-${salted.slice(8, 12)}-${salted.slice(12, 16)}-${salted.slice(16, 20)}-${salted.slice(20, 32)}`
   }
 
-  async function restoreOnce(): Promise<void> {
-    if (syncedEpoch === workerResetEpoch()) return
-    await document.restore()
-    if (document.doc.ops.length > 0) {
-      await runModelOp({ kind: 'reset' })
-      for (const op of document.doc.ops) {
-        try {
-          const result = await runModelOp(op)
-          // A replayed drawing re-generates its sheet and re-publishes the
-          // scene so the stable viewId keeps serving after restarts.
-          if (op.kind === 'drawing' && op.sceneViewId !== undefined && result.views !== undefined) {
-            const sheet = buildDrawingSheet({ partName: op.name ?? op.target, views: result.views, paper: op.paper })
-            drawingSheets.set(op.sceneViewId, { sheet, partName: op.name ?? op.target })
-            lastDrawingId = op.sceneViewId
-            await deps.sceneStore.putAt(op.sceneViewId, {
-              kind: '2d',
-              format: 'drawing',
-              entities: sheet.entities,
-              bounds: sheet.bounds,
-              layers: sheet.layers,
-            })
-          }
-        } catch {
-          // A single stale op must not block recovery; later ops may be independent.
+  /**
+   * Replay a document's ops into the worker and rebuild the derived caches
+   * (mesh mirror, drawing sheets). The worker is always reset first — also
+   * for empty documents, so a previous document's shapes never leak in.
+   * Absorbs the old restoreOnce body.
+   */
+  async function replayActiveDoc(): Promise<void> {
+    await runModelOp({ kind: 'reset' })
+    for (const op of document.doc.ops) {
+      try {
+        const result = await runModelOp(op)
+        // A replayed drawing re-generates its sheet and re-publishes the
+        // scene so the stable viewId keeps serving after restarts.
+        if (op.kind === 'drawing' && op.sceneViewId !== undefined && result.views !== undefined) {
+          const sheet = buildDrawingSheet({ partName: op.name ?? op.target, views: result.views, paper: op.paper })
+          drawingSheets.set(op.sceneViewId, { sheet, partName: op.name ?? op.target })
+          lastDrawingId = op.sceneViewId
+          await deps.sceneStore.putAt(op.sceneViewId, {
+            kind: '2d',
+            format: 'drawing',
+            entities: sheet.entities,
+            bounds: sheet.bounds,
+            layers: sheet.layers,
+          })
         }
+      } catch {
+        // A single stale op must not block recovery; later ops may be independent.
       }
+    }
+    if (document.doc.ops.length > 0) {
       const all = await runModelOp({ kind: 'tessellate_all' })
       meshCache.clear()
       for (const mesh of all.meshes ?? []) {
@@ -110,6 +120,65 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       }
     }
     syncedEpoch = workerResetEpoch()
+  }
+
+  /** Swap the active document: restore from disk, reset the worker, replay. */
+  async function activateDocument(next: ModelDocument): Promise<void> {
+    await next.restore()
+    document = next
+    meshCache.clear()
+    drawingSheets = new Map()
+    lastDrawingId = null
+    await replayActiveDoc()
+  }
+
+  /** Session key from the tool run context (`_default` outside a session). */
+  const sessionKeyOf = (exec: unknown): string => {
+    const agent = (exec as { agent?: { id?: unknown } | null } | undefined)?.agent
+    return typeof agent?.id === 'string' && agent.id !== '' ? agent.id : '_default'
+  }
+
+  /**
+   * Per-op entry point (replaces restoreOnce): resolve the calling session's
+   * active document, switching documents (reset + replay) when its binding
+   * points elsewhere, then re-sync when the worker was reset out of band.
+   */
+  async function resolveDoc(exec: unknown): Promise<void> {
+    const sessionId = sessionKeyOf(exec)
+    const bound = await deps.registry.bindingOf(sessionId)
+    if (bound === null) {
+      // Upgrade continuity: the first unbound session inherits the migrated
+      // legacy document (if any) instead of starting from scratch.
+      const legacy = await deps.registry.claimLegacyFor(sessionId)
+      if (legacy !== null) {
+        const doc = await deps.registry.open(legacy)
+        if (doc !== null) {
+          await activateDocument(doc)
+          return
+        }
+      }
+      // Unbound session (new conversation): start on a fresh empty document.
+      const fresh = await deps.registry.create()
+      await deps.registry.bind(sessionId, fresh.doc.docId)
+      await activateDocument(fresh)
+      return
+    }
+    if (bound !== document.doc.docId) {
+      const next = await deps.registry.open(bound)
+      if (next === null) {
+        // Manifest entry without a document file — recover with a fresh doc.
+        const fresh = await deps.registry.create()
+        await deps.registry.bind(sessionId, fresh.doc.docId)
+        await activateDocument(fresh)
+        return
+      }
+      await activateDocument(next)
+      return
+    }
+    if (syncedEpoch !== workerResetEpoch()) {
+      await document.restore()
+      await replayActiveDoc()
+    }
   }
 
   async function syncScene(op: ModelOp, result: OpResult, filePath?: string): Promise<Record<string, unknown>> {
@@ -124,6 +193,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
     const nameEntry = result.bodyId !== undefined && result.name !== undefined ? { bodyId: result.bodyId, name: result.name } : null
     await document.record(op, nameEntry)
+    await deps.registry.touch(document.doc.docId, { opCount: document.doc.version, bodyCount: meshCache.size })
 
     const meshes = [...meshCache.values()]
     const triangles = meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
@@ -162,6 +232,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     const instances = result.instances ?? []
     const meshes = composeAssemblyMeshes(meshCache, instances)
     await document.record(op, null)
+    await deps.registry.touch(document.doc.docId, { opCount: document.doc.version, bodyCount: meshCache.size })
     const sceneUrlBase = deps.ensureSceneRoute()
     if (sceneUrlBase !== null) {
       // Publish even when empty — removing the last instance must refresh the tab.
@@ -365,8 +436,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const bodyId = nextBodyId()
       const params = args as unknown as Record<string, unknown>
       const op: ModelOp = { kind: 'create_prim', bodyId, prim: args.kind, params, name: args.name }
@@ -401,8 +472,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       if (args.points.length < 6 || args.points.length % 2 !== 0) {
         throw new Error('points must be a flat array of ≥3 [x,y] pairs (≥6 numbers)')
       }
@@ -438,8 +509,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const op: ModelOp = { kind: 'boolean', op: args.op, target: args.target, tools: args.tools }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
@@ -469,8 +540,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const op: ModelOp = { kind: 'fillet', target: args.target, radius: args.radius }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
@@ -503,8 +574,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const op: ModelOp = {
         kind: 'transform',
         target: args.target,
@@ -559,8 +630,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       },
     },
     isConcurrencySafe: () => true,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const resolved = resolveWorkspacePath(args.path, deps.workspaceRoot)
       const lower = args.path.toLowerCase()
 
@@ -651,8 +722,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const op: ModelOp = { kind: 'delete', target: args.target }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
@@ -681,8 +752,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => true,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const op: ModelOp = { kind: 'volume', target: args.target }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
@@ -711,8 +782,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => drawingMetaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const target = args.target ?? lastBodyId()
       if (target === undefined) throw new Error('nothing to draw — create a body first')
       if (!meshCache.has(target)) throw new Error(`unknown body: ${target}`)
@@ -759,8 +830,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       if (!meshCache.has(args.bodyId)) throw new Error(`unknown body: ${args.bodyId}`)
       const instanceId = nextInstanceId()
       const op: ModelOp = {
@@ -793,8 +864,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const op: ModelOp = {
         kind: 'assembly_transform',
         instanceId: args.instanceId,
@@ -820,14 +891,237 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
     },
     isConcurrencySafe: () => false,
-    async execute(args) {
-      await restoreOnce()
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
       const op: ModelOp = { kind: 'assembly_remove', instanceId: args.instanceId }
       const result = await runModelOp(op)
       return syncAssembly(op, result) as never
     },
     presentCall: (args) => ({ card: 'generic', title: `移除 ${String(args.instanceId)}`, kind: 'delete' }),
     presentResult: () => ({ card: 'generic', title: '装配移除' }),
+  }) as unknown as ToolDefinition
+
+  // ── document (file space) tools ───────────────────────────────────────────
+
+  const docRefParam = { type: 'string' as const, required: true as const, description: 'Document id or exact name (list with cad_docs).' }
+
+  const renderDocs = (value: Record<string, unknown>): string => {
+    const docs = Array.isArray(value.docs) ? (value.docs as Array<Record<string, unknown>>) : []
+    const active = typeof value.activeDoc === 'string' ? value.activeDoc : ''
+    const lines = docs.map((doc) => `${doc.id === active ? '● ' : '  '}${String(doc.name)} · ${Number(doc.bodies)} 体 · ${String(doc.updatedAt).slice(0, 16).replace('T', ' ')} · ${String(doc.id)}`)
+    return lines.length > 0 ? ['工作区文档:', ...lines].join('\n') : '工作区还没有建模文档'
+  }
+
+  const cadDocs = defineTool({
+    name: 'cad_docs',
+    description:
+      'List the workspace modeling documents (the file space): id, name, body count and update time, marking the one active for this session. ' +
+      'Call before cad_doc_open / cad_doc_delete to discover ids and names.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          docs: {
+            type: 'array',
+            required: true,
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                id: { type: 'string', required: true },
+                name: { type: 'string', required: true },
+                bodies: { type: 'number', required: true },
+                ops: { type: 'number', required: true },
+                updatedAt: { type: 'string', required: true },
+                active: { type: 'boolean' },
+              },
+            },
+          },
+          activeDoc: { type: 'string', description: 'Active document id for this session (absent: none).' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderDocs(value as unknown as Record<string, unknown>) }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(_args, exec: unknown) {
+      const sessionId = sessionKeyOf(exec)
+      const docs = await deps.registry.list()
+      const activeDoc = await deps.registry.bindingOf(sessionId)
+      return {
+        docs: docs.map((doc) => ({ id: doc.id, name: doc.name, bodies: doc.bodyCount, ops: doc.opCount, updatedAt: doc.updatedAt, ...(doc.id === activeDoc ? { active: true } : {}) })),
+        ...(activeDoc === null ? {} : { activeDoc }),
+      } as never
+    },
+    presentCall: () => ({ card: 'generic', title: '文档列表', kind: 'read' }),
+    presentResult: () => ({ card: 'generic', title: '文档列表' }),
+  }) as unknown as ToolDefinition
+
+  const cadDocNew = defineTool({
+    name: 'cad_doc_new',
+    description:
+      'Create a new modeling document and make it this session\'s active modeling target (previous documents stay in the file space). ' +
+      'Name it when the task has a clear subject (e.g. 发动机 / 齿轮箱) — start multi-part projects with this tool so each project keeps its own document.',
+    parameters: {
+      name: { type: 'string', description: 'Document name (default: 未命名 N).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          docId: { type: 'string', required: true, description: 'New document id.' },
+          name: { type: 'string', required: true, description: 'Document name.' },
+          bodies: { type: 'number', required: true, description: 'Bodies (0 for a fresh document).' },
+          version: { type: 'number', required: true, description: 'Document version.' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `新建文档 ${String((value as Record<string, unknown>).name)}（后续建模操作都写入该文档）` }],
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      const sessionId = sessionKeyOf(exec)
+      const doc = await deps.registry.create(args.name)
+      await deps.registry.bind(sessionId, doc.doc.docId)
+      await activateDocument(doc)
+      const name = (await deps.registry.list()).find((meta) => meta.id === doc.doc.docId)?.name ?? doc.doc.docId
+      return { docId: doc.doc.docId, name, bodies: 0, version: doc.doc.version } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `新建文档 ${String(args.name ?? '')}`.trim(), kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '新建文档' }),
+  }) as unknown as ToolDefinition
+
+  const cadDocOpen = defineTool({
+    name: 'cad_doc_open',
+    description:
+      'Open an existing modeling document and make it this session\'s active modeling target (its bodies load back exactly). ' +
+      'Use when the user asks to continue an earlier model (e.g. “打开发动机文档”) — resolve the id/name with cad_docs first when unsure.',
+    parameters: {
+      doc: docRefParam,
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          docId: { type: 'string', required: true, description: 'Opened document id.' },
+          name: { type: 'string', required: true, description: 'Document name.' },
+          bodies: { type: 'number', required: true, description: 'Bodies in the document.' },
+          triangles: { type: 'number', required: true, description: 'Document triangle count.' },
+          version: { type: 'number', required: true, description: 'Document version.' },
+          sceneUrl: { type: 'string', description: 'Versioned viewer URL (web compositions).' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `打开文档 ${String((value as Record<string, unknown>).name)} · ${Number((value as Record<string, unknown>).bodies)} 体 (version ${Number((value as Record<string, unknown>).version)})` }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      const sessionId = sessionKeyOf(exec)
+      const meta = await deps.registry.resolve(args.doc)
+      if (meta === null) {
+        const available = (await deps.registry.list()).map((doc) => doc.name).join(' / ')
+        throw new Error(`no document matches "${String(args.doc)}" — available: ${available === '' ? '(none)' : available}`)
+      }
+      await deps.registry.bind(sessionId, meta.id)
+      const doc = await deps.registry.open(meta.id)
+      if (doc === null) throw new Error(`document file missing: ${meta.id}`)
+      await activateDocument(doc)
+      const meshes = [...meshCache.values()]
+      const triangles = meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
+      const sceneUrlBase = deps.ensureSceneRoute()
+      const value: Record<string, unknown> = {
+        docId: meta.id,
+        name: meta.name,
+        bodies: meshes.length,
+        triangles,
+        version: document.doc.version,
+      }
+      if (meshes.length > 0) await deps.store.publish(meta.id, meshes)
+      if (meshes.length > 0 && sceneUrlBase !== null) {
+        value.sceneUrl = `${sceneUrlBase.replace('/scene', '/bin')}/${meta.id}?v=${document.doc.version}`
+      }
+      return value as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `打开文档 ${String(args.doc)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '打开文档' }),
+  }) as unknown as ToolDefinition
+
+  const cadDocRename = defineTool({
+    name: 'cad_doc_rename',
+    description: 'Rename a modeling document in the file space.',
+    parameters: {
+      doc: docRefParam,
+      name: { type: 'string', required: true, description: 'New document name.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          docId: { type: 'string', required: true, description: 'Document id.' },
+          name: { type: 'string', required: true, description: 'New name.' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `文档已重命名为 ${String((value as Record<string, unknown>).name)}` }],
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      void exec
+      const meta = await deps.registry.resolve(args.doc)
+      if (meta === null) throw new Error(`no document matches "${String(args.doc)}"`)
+      const renamed = await deps.registry.rename(meta.id, args.name)
+      if (renamed === null) throw new Error(`rename failed: ${meta.id}`)
+      return { docId: renamed.id, name: renamed.name } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `重命名文档 ${String(args.doc)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '重命名文档' }),
+  }) as unknown as ToolDefinition
+
+  const cadDocDelete = defineTool({
+    name: 'cad_doc_delete',
+    description:
+      'Permanently delete a modeling document from the file space (op log + bodies). Requires confirm=true — ask the user before calling. ' +
+      'To delete a single body inside a document, use cad_delete instead.',
+    parameters: {
+      doc: docRefParam,
+      confirm: { type: 'boolean', required: true, description: 'Must be explicitly true to delete.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          deleted: { type: 'string', required: true, description: 'Deleted document id.' },
+          name: { type: 'string', required: true, description: 'Deleted document name.' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: `已删除文档 ${String((value as Record<string, unknown>).name)}` }],
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      void exec
+      if (args.confirm !== true) {
+        throw new Error('pass confirm=true to delete — this permanently removes the document and its bodies')
+      }
+      const meta = await deps.registry.resolve(args.doc)
+      if (meta === null) throw new Error(`no document matches "${String(args.doc)}"`)
+      const removed = await deps.registry.remove(meta.id)
+      if (!removed) throw new Error(`delete failed: ${meta.id}`)
+      // Drop the active-document state if it was the deleted one; the next
+      // modeling op lazily creates a fresh document for its session.
+      if (document.doc.docId === meta.id) {
+        document = new ModelDocument(deps.workspaceRoot)
+        meshCache.clear()
+        drawingSheets = new Map()
+        lastDrawingId = null
+        syncedEpoch = -1
+      }
+      return { deleted: meta.id, name: meta.name } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `删除文档 ${String(args.doc)}`, kind: 'delete' }),
+    presentResult: () => ({ card: 'generic', title: '删除文档' }),
   }) as unknown as ToolDefinition
 
   return [
@@ -843,6 +1137,11 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     cadAssemblyInsert,
     cadAssemblyMove,
     cadAssemblyRemove,
+    cadDocs,
+    cadDocNew,
+    cadDocOpen,
+    cadDocRename,
+    cadDocDelete,
   ]
 }
 
@@ -859,4 +1158,9 @@ export const MODEL_TOOL_NAMES = [
   'cad_assembly_insert',
   'cad_assembly_move',
   'cad_assembly_remove',
+  'cad_docs',
+  'cad_doc_new',
+  'cad_doc_open',
+  'cad_doc_rename',
+  'cad_doc_delete',
 ] as const

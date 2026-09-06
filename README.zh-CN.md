@@ -31,6 +31,7 @@
 | 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
 | 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
 | 🗂️ Codex 式文档页签 | 右侧显示区页签栏 + 「+」菜单：**零件**（Part Studio，默认）/ **装配体**（实例插入/移动/移除）/ **工程图**（真实隐藏线图纸），页签可关闭、常驻不丢状态 |
+| 📁 多文档 file 空间 | 工作区命名的建模文档（`.dsh-cad/docs/`），每个会话绑定自己的活动文档——新会话从空文档开始，不再继承历史遗留零件；面板上的文件夹按钮列出全部文档（预览 / 删除），对话中用 `cad_doc_new` / `cad_doc_open` 切换建模目标 |
 | 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，**occt.ts** 内核（npm 依赖，OCCT 7.9）真实隐藏线消除（虚线）；图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
 | 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
 | 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |
@@ -101,6 +102,11 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | `cad_assembly_remove` | 从装配体移除实例（零件保留） |
 | `cad_export` | 导出 STEP / STL / DCPRT（原生可重放零件文档）到工作区路径；`target: "assembly"` 导出装配体 STEP，`target: "drawing"` 导出工程图 SVG / DXF |
 | `cad_delete` | 删除 body |
+| `cad_docs` | 列出工作区建模文档（id / 名称 / 体数 / 更新时间，标记当前活动文档） |
+| `cad_doc_new` | 新建命名文档并设为会话建模目标（多零件项目从这里开始） |
+| `cad_doc_open` | 打开已有文档（按 id 或名称）作为会话建模目标——body 精确重放 |
+| `cad_doc_rename` | 重命名文档 |
+| `cad_doc_delete` | 永久删除文档（需 `confirm: true`） |
 | `cad_freecad` | 在外部 FreeCAD 执行器上运行 op 程序（可选 STEP 输入/导出） |
 | `cad_fusion` | 在外部 Fusion 360 执行器上运行 op 程序（GUI 桥；可选导出） |
 | `cad_image_profile` | PNG → 轮廓 → 可直接拉伸的多边形点集 |

@@ -3,7 +3,7 @@
  * route serves straight from memory; a debounced disk mirror keeps restart
  * replay working without paying a file write on every modeling step.
  */
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { packBinaryScene } from './bin-format.js'
 import type { BinMeshData } from './bin-format.js'
@@ -53,6 +53,18 @@ export class BinarySceneStore {
       return entry
     } catch {
       return null
+    }
+  }
+
+  /** Existence check without loading the buffer into memory. */
+  async has(viewId: string): Promise<boolean> {
+    if (!/^[0-9a-zA-Z_-]{1,64}$/.test(viewId)) return false
+    if (this.memory.has(viewId)) return true
+    try {
+      await access(path.join(this.directory, `${viewId}.bin`))
+      return true
+    } catch {
+      return false
     }
   }
 
