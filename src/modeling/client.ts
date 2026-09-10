@@ -71,6 +71,8 @@ export type ModelOp =
   | { kind: 'assembly_insert'; instanceId: string; bodyId: string; name?: string; translate?: [number, number, number]; rotate?: [number, number, number] }
   | { kind: 'assembly_transform'; instanceId: string; translate?: [number, number, number]; rotate?: [number, number, number] }
   | { kind: 'assembly_remove'; instanceId: string }
+  | { kind: 'assembly_list' }
+  | { kind: 'constraints'; model: { entities: unknown[]; constraints: unknown[] } }
   | { kind: 'export_assembly'; format: 'step' | 'stl' }
 
 interface Pending {

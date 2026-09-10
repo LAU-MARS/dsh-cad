@@ -43,6 +43,9 @@ const CAD_TOOL_KEYS = [
   'cad_assembly_move',
   'cad_assembly_remove',
   'cad_doc_open',
+  'cad_constraint',
+  'cad_solve',
+  'cad_motion',
 ]
 
 export function apply(ctx: ClientContext): void {

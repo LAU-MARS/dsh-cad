@@ -151,6 +151,14 @@ async function applyOp(op) {
       if (!instances.delete(op.instanceId)) throw new Error(`unknown instance: ${op.instanceId}`)
       return { instanceId: op.instanceId, removed: op.instanceId, instances: instancesList() }
     }
+    case 'assembly_list': {
+      return { instances: instancesList() }
+    }
+    case 'constraints': {
+      // Persist-only op: the constraint model lives in the document log and
+      // is solved on the main thread (Ansatz wasm); the worker stores nothing.
+      return { stored: true, entities: op.model.entities.length, constraints: op.model.constraints.length }
+    }
     case 'export_assembly': {
       if (instances.size === 0) throw new Error('the assembly is empty')
       const builder = new occt.BRep_Builder()

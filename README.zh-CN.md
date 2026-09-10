@@ -33,6 +33,7 @@
 | 🗂️ Codex 式文档页签 | 右侧显示区页签栏 + 「+」菜单：**零件**（Part Studio，默认）/ **装配体**（实例插入/移动/移除）/ **工程图**（真实隐藏线图纸），页签可关闭、常驻不丢状态 |
 | 📁 多文档 file 空间 | 工作区命名的建模文档（`.dsh-cad/docs/`），每个会话绑定自己的活动文档——新会话从空文档开始，不再继承历史遗留零件；面板上的文件夹按钮列出全部文档（预览 / 删除），对话中用 `cad_doc_new` / `cad_doc_open` 切换建模目标 |
 | 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，**occt.ts** 内核（npm 依赖，OCCT 7.9）真实隐藏线消除（虚线）；图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
+| 🔗 约束求解与运动 | 集成 **Ansatz** 几何约束求解器（**`ansatz-wasm` 一条命令即可**：`npm install ansatz-wasm`，零 Rust 工具链 / 零原生二进制 / 零依赖）：实体/约束建模（装配实例 ↔ rigid3 位姿自动映射）、求解回写、DOF/残差/冗余/建议全量诊断（面向 LLM 的中文报告）、参数扫描运动学（`cad_constraint` / `cad_solve` / `cad_motion`） |
 | 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
 | 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |
 | 🖥️ 常驻 CAD 显示区 | 会话页右侧常驻面板：Codex 式页签（零件 / 装配体 / 工程图），建模时实时跟踪最新模型 |
@@ -100,6 +101,9 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | `cad_assembly_insert` | 将零件以实例插入装配体（`at` 定位、`rotate` 定向） |
 | `cad_assembly_move` | 设置实例绝对位置/姿态 |
 | `cad_assembly_remove` | 从装配体移除实例（零件保留） |
+| `cad_constraint` | 声明约束模型：实体（含装配实例绑定）+ 约束（distance/angle/mate/coaxial…），持久化于操作日志 |
+| `cad_solve` | Ansatz 求解并回写装配位姿；返回 DOF 剩余/残差/冗余/建议全量诊断 |
+| `cad_motion` | 运动学扫描：驱动一个约束值从 from 到 to 逐帧求解，应用末帧位姿并返回运动表 |
 | `cad_export` | 导出 STEP / STL / DCPRT（原生可重放零件文档）到工作区路径；`target: "assembly"` 导出装配体 STEP，`target: "drawing"` 导出工程图 SVG / DXF |
 | `cad_delete` | 删除 body |
 | `cad_docs` | 列出工作区建模文档（id / 名称 / 体数 / 更新时间，标记当前活动文档） |
@@ -158,6 +162,14 @@ cad_view(path)                        建模工具（cad_create_prim 等）
   解析顺序：`DSH_OCCTJS_DIST` 环境变量 → `node_modules/occt.ts/dist`（npm，
   默认）→ `<repo>/../opencascade-ts/dist`（兄弟检出）→ `vendor/` →
   `node_modules/opencascade-ts`
+- **约束求解（Ansatz）**：求解器是 npm 依赖 **`ansatz-wasm`**（wasm-bindgen
+  构建，单包 ~538KB、零依赖）——安装 dsh-cad 即自动获得，也可单独
+  `npm install ansatz-wasm` 升级；**无需 Rust 工具链、无需原生二进制、跨平台**。
+  解析顺序：npm 包（node_modules）→ `DSH_ANSATZ_WASM` 目录 → 兄弟 Ansatz 检出的
+  pkg-node。求解器以 JSON 信封契约通信，工具层错误（`unsupported_constraint` 等）
+  原样透出给 LLM。装配实例位姿（平移 + XYZ 欧拉度）与求解器 rigid3（平移 + 指数映射
+  旋转，弧度）双向映射。求解器能力按阶段推进（当前支持点到原点距离），管道契约
+  已就绪、无需随求解器成长改动
 - **客户端**：esbuild 单文件 CJS 工厂（three.js 内联 ~560KB，react 由宿主模块表提供），
   Z-up CAD 惯例，带 XYZ 轴标签与地面网格的空场景常驻显示
 

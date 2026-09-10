@@ -35,6 +35,7 @@ switchable demo parts (bracket / flange / shaft):
 | 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
 | 📁 Multi-document file space | Named documents per workspace (`.dsh-cad/docs/`), each session bound to its own active document — new sessions start empty instead of inheriting leftovers; a folder button in the panel lists every document (preview / delete), and `cad_doc_new` / `cad_doc_open` manage the modeling target from chat |
 | 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, true OCCT hidden-line removal via the **occt.ts** kernel (an npm dependency, dashed); sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
+| 🔗 Constraint solving & motion | **Ansatz** geometric constraint solver (**one command: `npm install ansatz-wasm`** — a wasm dependency, no Rust toolchain, no native binary): entity/constraint modeling (assembly instances ↔ rigid3 poses mapped automatically), solve-with-writeback, full DOF/residual/redundancy/suggestion diagnostics (LLM-oriented), and parametric kinematic sweeps (`cad_constraint` / `cad_solve` / `cad_motion`) |
 | 📐 Geometry measurement | Exact volume (mm³), bounding box, triangle counts, DXF layers |
 | 📤 On-demand export | STEP (parametric) / STL (mesh); files are written only when the user asks |
 | 🖥️ Resident CAD panel | A permanent panel right of the conversation: Codex-style tabs (Part / Assembly / Drawing), tracking the latest model in real time while modeling |
@@ -104,6 +105,9 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_assembly_insert` | Insert a body into the assembly as a placed instance (`at` position, `rotate` orientation) |
 | `cad_assembly_move` | Set an instance's absolute placement |
 | `cad_assembly_remove` | Remove an instance from the assembly (the body stays) |
+| `cad_constraint` | Declare the constraint model: entities (assembly-instance bindings) + constraints (distance/angle/mate/coaxial…), persisted in the op log |
+| `cad_solve` | Solve with Ansatz and write poses back; returns DOF/residual/redundancy/suggestion diagnostics |
+| `cad_motion` | Kinematic sweep: drive one constraint value from `from` to `to`, solve frame by frame, apply the last pose, return the motion table |
 | `cad_export` | Export STEP / STL / DCPRT (the native replayable part document) to a workspace path; `target: "assembly"` writes the assembly STEP, `target: "drawing"` writes the sheet as SVG / DXF |
 | `cad_delete` | Delete a body |
 | `cad_docs` | List the workspace's modeling documents (id / name / bodies / updated, active marked) |
@@ -169,6 +173,18 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   dist resolution: `DSH_OCCTJS_DIST` env var → `node_modules/occt.ts/dist`
   (npm, default) → `<repo>/../opencascade-ts/dist` (sibling checkout) → `vendor/`
   → `node_modules/opencascade-ts`
+- **Constraint solving (Ansatz)**: the solver is the npm dependency
+  **`ansatz-wasm`** (a wasm-bindgen build, single package ~538KB, zero deps) —
+  installing dsh-cad pulls it automatically, and `npm install ansatz-wasm` alone
+  upgrades it. **No Rust toolchain, no native binary, platform independent.**
+  Resolution: the npm package (node_modules) → a `DSH_ANSATZ_WASM` directory → a
+  sibling Ansatz checkout's pkg-node. The solver speaks one JSON envelope
+  contract, with tool-layer errors (e.g. `unsupported_constraint`) surfaced
+  verbatim for the LLM. Assembly placements (translate + XYZ Euler
+  degrees) map bidirectionally to the solver's rigid3 poses (translate +
+  exponential-map rotation, radians). Solver capability is staged
+  (point-distance-to-origin today) — the plumbing contract is finished and needs
+  no changes as it grows
 - **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
   by the host module table), Z-up CAD convention, empty scene with XYZ axis labels
   and a ground grid always displayed

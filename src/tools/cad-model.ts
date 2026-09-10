@@ -25,6 +25,8 @@ import type { DrawingSheet } from '../modeling/drawing.js'
 import type { SceneStore } from '../store.js'
 import { resolveWorkspacePath } from './util.js'
 import { toDcPrtDocument } from '../feature_script/dc_prt.js'
+import { createConstraintTools } from './cad-constraint.js'
+import type { ConstraintModel } from '../modeling/constraints.js'
 
 export interface ModelToolDeps {
   store: BinarySceneStore
@@ -60,6 +62,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   /** drawingId → rebuilt sheet (backing cad_export .svg/.dxf). */
   let drawingSheets = new Map<string, { sheet: DrawingSheet; partName: string }>()
   let lastDrawingId: string | null = null
+  /** Live constraint-model state (rebuilt from the op log on replay). */
+  const constraintState: { model: ConstraintModel | null; lastSuggestions: string[] } = { model: null, lastSuggestions: [] }
 
   /**
    * Standard drawing views (GB first-angle): 主视图 front, 俯视图 top,
@@ -85,15 +89,22 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
   /**
    * Replay a document's ops into the worker and rebuild the derived caches
-   * (mesh mirror, drawing sheets). The worker is always reset first — also
-   * for empty documents, so a previous document's shapes never leak in.
-   * Absorbs the old restoreOnce body.
+   * (mesh mirror, drawing sheets, constraint model). The worker is always
+   * reset first — also for empty documents, so a previous document's shapes
+   * never leak in. Absorbs the old restoreOnce body.
    */
   async function replayActiveDoc(): Promise<void> {
     await runModelOp({ kind: 'reset' })
+    // Derived state belongs to the outgoing document: clear before replay so
+    // a document without constraints/drawings never inherits the previous one's.
+    constraintState.model = null
     for (const op of document.doc.ops) {
       try {
         const result = await runModelOp(op)
+        // A replayed constraint model returns to live state.
+        if (op.kind === 'constraints') {
+          constraintState.model = op.model as unknown as ConstraintModel
+        }
         // A replayed drawing re-generates its sheet and re-publishes the
         // scene so the stable viewId keeps serving after restarts.
         if (op.kind === 'drawing' && op.sceneViewId !== undefined && result.views !== undefined) {
@@ -1124,6 +1135,19 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     presentResult: () => ({ card: 'generic', title: '删除文档' }),
   }) as unknown as ToolDefinition
 
+  // ── constraint tools (Ansatz solver) ──────────────────────────────────────
+
+  const constraintTools = createConstraintTools({
+    deps,
+    // Read the ACTIVE document per call: multi-document sessions swap it.
+    getDocument: () => document,
+    meshCache,
+    constraintState,
+    resolveDoc,
+    syncAssembly,
+    assemblyMetaOf,
+  })
+
   return [
     cadCreatePrim,
     cadExtrude,
@@ -1142,6 +1166,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     cadDocOpen,
     cadDocRename,
     cadDocDelete,
+    ...constraintTools,
   ]
 }
 
@@ -1163,4 +1188,7 @@ export const MODEL_TOOL_NAMES = [
   'cad_doc_open',
   'cad_doc_rename',
   'cad_doc_delete',
+  'cad_constraint',
+  'cad_solve',
+  'cad_motion',
 ] as const
