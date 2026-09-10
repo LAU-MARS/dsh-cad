@@ -26,6 +26,17 @@ const wasmBinary = fs.readFileSync(path.join(path.dirname(loaderPath), 'opencasc
 let adapter = null
 let occt = null
 
+/**
+ * Reject a degenerate result BEFORE registering it: the kernel cannot
+ * tessellate a self-intersecting BRep (it fails deep inside the mesher with
+ * a cryptic error), and an unrenderable body in the document helps no one.
+ */
+function assertUsable(shape, what, hint) {
+  if (adapter.isValid(shape) === false) {
+    throw new Error(`the ${what} produced an invalid shape (self-intersecting or degenerate)${hint === undefined ? '' : `: ${hint}`}`)
+  }
+}
+
 /** bodyId → { shape, name } — the live document. */
 const bodies = new Map()
 let nextBodyNumber = 1
@@ -73,6 +84,20 @@ async function applyOp(op) {
     case 'extrude_profile': {
       const bodyId = op.bodyId
       const shape = adapter.makeExtrudedProfile(op.points, op.height ?? 10, op.base ?? 0)
+      bodies.set(bodyId, { shape, name: op.name ?? bodyId })
+      return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
+    }
+    case 'loft': {
+      const bodyId = op.bodyId
+      const shape = adapter.makeLoft(op.sections, { solid: op.solid, ruled: op.ruled })
+      assertUsable(shape, 'loft', '检查各截面是否闭合、点数是否合理')
+      bodies.set(bodyId, { shape, name: op.name ?? bodyId })
+      return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
+    }
+    case 'sweep': {
+      const bodyId = op.bodyId
+      const shape = adapter.makeSweep(op.profile, op.path)
+      assertUsable(shape, 'sweep', '路径上的尖角配合较大截面会自交——把拐角改为圆滑/倒角路径')
       bodies.set(bodyId, { shape, name: op.name ?? bodyId })
       return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
     }

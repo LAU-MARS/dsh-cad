@@ -261,9 +261,128 @@ function createAdapter(occt) {
     throw new Error(`unsupported export format: ${format}`)
   }
 
+  // ── loft / sweep ───────────────────────────────────────────────────────────
+  /**
+   * Closed polygon wire from flat [x,y,z, …] triplets. Loft sections carry
+   * explicit 3D coordinates (each section sits in its own plane), so unlike
+   * makeExtrudedProfile there is no implicit base plane here.
+   */
+  function closedWire(points) {
+    if (points.length < 9 || points.length % 3 !== 0) {
+      throw new Error('a section needs at least 3 [x,y,z] triplets (≥9 numbers)')
+    }
+    const poly = new occt.BRepBuilderAPI_MakePolygon_1()
+    for (let i = 0; i + 2 < points.length; i += 3) poly.Add_1(pnt(points[i], points[i + 1], points[i + 2]))
+    poly.Close()
+    if (!poly.IsDone()) throw new Error('section polygon is invalid (duplicate or collinear-only points)')
+    return poly.Wire()
+  }
+
+  /** A planar FACE in the given frame's plane (MakePipe needs a face, not a wire). */
+  function faceInFrame(ax3, points2d) {
+    const poly = new occt.BRepBuilderAPI_MakePolygon_1()
+    const xd = ax3.XDirection()
+    const yd = ax3.YDirection()
+    const o = ax3.Location()
+    for (let i = 0; i + 1 < points2d.length; i += 2) {
+      const u = points2d[i]
+      const v = points2d[i + 1]
+      poly.Add_1(pnt(
+        o.X() + xd.X() * u + yd.X() * v,
+        o.Y() + xd.Y() * u + yd.Y() * v,
+        o.Z() + xd.Z() * u + yd.Z() * v,
+      ))
+    }
+    poly.Close()
+    if (!poly.IsDone()) throw new Error('profile polygon is invalid')
+    const builder = new occt.BRepBuilderAPI_MakeFace_3(new occt.gp_Pln_2(ax3))
+    builder.Add(poly.Wire())
+    const face = builder.Face()
+    if (!builder.IsDone() || face.IsNull()) throw new Error('profile face construction failed')
+    return face
+  }
+
+  /**
+   * Loft: skin a solid through successive closed sections (OCCT ThruSections).
+   * `sections` is a list of flat [x,y,z, …] loops, in order along the loft.
+   * `solid` caps the ends, `ruled` keeps the sides straight (no smoothing).
+   */
+  function makeLoft(sections, options = {}) {
+    if (!Array.isArray(sections) || sections.length < 2) throw new Error('a loft needs at least 2 sections')
+    const solid = options.solid ?? true
+    const ruled = options.ruled ?? false
+    // Verified spelling: this build binds only the 3-argument constructor.
+    const thru = new occt.BRepOffsetAPI_ThruSections(solid, ruled, 1e-6)
+    for (const section of sections) thru.AddWire(closedWire(section))
+    thru.Build()
+    if (!thru.IsDone()) throw new Error('loft failed (check that the sections are closed and non-degenerate)')
+    return thru.Shape()
+  }
+
+  /**
+   * Sweep: pipe a 2D profile along a 3D path (OCCT MakePipe). The profile is
+   * placed in the plane PERPENDICULAR TO THE PATH'S START TANGENT, so callers
+   * give a plain 2D outline plus a 3D path in any orientation.
+   *
+   * Note: MakePipeShell (the transition-aware variant) is unusable in this
+   * opencascade.js build, so a sharp direction change in the path with a
+   * section large relative to the corner yields a self-intersecting solid —
+   * `isValid()` reports that, and the tool surfaces it.
+   */
+  function makeSweep(profile, pathPoints) {
+    if (!Array.isArray(profile) || profile.length < 6 || profile.length % 2 !== 0) {
+      throw new Error('the profile needs at least 3 [x,y] pairs (≥6 numbers)')
+    }
+    if (!Array.isArray(pathPoints) || pathPoints.length < 6 || pathPoints.length % 3 !== 0) {
+      throw new Error('the path needs at least 2 [x,y,z] triplets (≥6 numbers)')
+    }
+    const spine = new occt.BRepBuilderAPI_MakePolygon_1()
+    for (let i = 0; i + 2 < pathPoints.length; i += 3) {
+      spine.Add_1(pnt(pathPoints[i], pathPoints[i + 1], pathPoints[i + 2]))
+    }
+    if (!spine.IsDone()) throw new Error('path polyline is invalid')
+    // Frame at the path start: +Z (the gp_Ax3 normal) along the initial
+    // tangent; the in-plane X axis is world X projected perpendicular to it
+    // (world Y when that degenerates), so a profile maps onto predictable
+    // world axes — for a +Z sweep the 2D outline lands exactly on world XY.
+    const tx = pathPoints[3] - pathPoints[0]
+    const ty = pathPoints[4] - pathPoints[1]
+    const tz = pathPoints[5] - pathPoints[2]
+    const tLen = Math.hypot(tx, ty, tz)
+    if (tLen < 1e-12) throw new Error('the path starts with a zero-length segment')
+    const n = [tx / tLen, ty / tLen, tz / tLen]
+    const axis = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]
+    const d = axis[0] * n[0] + axis[1] * n[1] + axis[2] * n[2]
+    let vx = [axis[0] - n[0] * d, axis[1] - n[1] * d, axis[2] - n[2] * d]
+    const vxLen = Math.hypot(vx[0], vx[1], vx[2])
+    if (vxLen < 1e-12) throw new Error('could not build a profile frame for the path tangent')
+    vx = [vx[0] / vxLen, vx[1] / vxLen, vx[2] / vxLen]
+    const ax3 = new occt.gp_Ax3_3(
+      pnt(pathPoints[0], pathPoints[1], pathPoints[2]),
+      dir(n[0], n[1], n[2]),
+      dir(vx[0], vx[1], vx[2]),
+    )
+    const profileFace = faceInFrame(ax3, profile)
+    const pipe = new occt.BRepOffsetAPI_MakePipe_1(spine.Wire(), profileFace)
+    pipe.Build()
+    if (!pipe.IsDone()) throw new Error('sweep failed (check the path and profile)')
+    return pipe.Shape()
+  }
+
+  /** BRepCheck_Analyzer verdict, or null when the check itself is unavailable. */
+  function isValid(shape) {
+    try {
+      const analyzer = new occt.BRepCheck_Analyzer(shape, true)
+      return analyzer.IsValid_1(shape) === true
+    } catch {
+      return null
+    }
+  }
+
   return {
     pnt, dir, ENUM,
-    makePrim, makeExtrudedProfile, boolean, filletAll, transform,
+    makePrim, makeExtrudedProfile, makeLoft, makeSweep, isValid,
+    boolean, filletAll, transform,
     tessellate, faceNormals, exportFile, volume,
   }
 }

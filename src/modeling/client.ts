@@ -59,6 +59,8 @@ export interface DrawingViewSpec {
 export type ModelOp =
   | { kind: 'create_prim'; bodyId: string; prim: string; params?: Record<string, unknown>; name?: string }
   | { kind: 'extrude_profile'; bodyId: string; points: number[]; height?: number; base?: number; name?: string }
+  | { kind: 'loft'; bodyId: string; sections: number[][]; solid?: boolean; ruled?: boolean; name?: string }
+  | { kind: 'sweep'; bodyId: string; profile: number[]; path: number[]; name?: string }
   | { kind: 'boolean'; op: 'fuse' | 'cut' | 'common'; target: string; tools: string[] }
   | { kind: 'fillet'; target: string; radius: number }
   | { kind: 'transform'; target: string; translate?: [number, number, number]; rotate?: [number, number, number]; mirror?: [number, number, number] }

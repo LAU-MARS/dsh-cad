@@ -30,6 +30,8 @@ const CAD_TOOL_KEYS = [
   'cad_view',
   'cad_create_prim',
   'cad_extrude_profile',
+  'cad_loft',
+  'cad_sweep',
   'cad_boolean',
   'cad_fillet',
   'cad_transform',

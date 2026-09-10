@@ -29,7 +29,7 @@
 | --- | --- |
 | 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP / DCPRT（3D），DXF / SVG（2D），对话内嵌交互卡片（轨道旋转 / 缩放 / 线框 / 平移） |
 | 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
-| 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
+| 🏗️ 参数化建模 | 基本体（box/cylinder/sphere/cone/torus）、轮廓拉伸、**放样（多截面蒙皮）**、**扫掠（轮廓沿路径）**、布尔（fuse/cut/common）、全边圆角、变换（平移/旋转/镜像）—— OCCT 精确 BRep，非网格近似 |
 | 🗂️ Codex 式文档页签 | 右侧显示区页签栏 + 「+」菜单：**零件**（Part Studio，默认）/ **装配体**（实例插入/移动/移除）/ **工程图**（真实隐藏线图纸），页签可关闭、常驻不丢状态 |
 | 📁 多文档 file 空间 | 工作区命名的建模文档（`.dsh-cad/docs/`），每个会话绑定自己的活动文档——新会话从空文档开始，不再继承历史遗留零件；面板上的文件夹按钮列出全部文档（预览 / 删除），对话中用 `cad_doc_new` / `cad_doc_open` 切换建模目标 |
 | 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，**occt.ts** 内核（npm 依赖，OCCT 7.9）真实隐藏线消除（虚线）；图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
@@ -93,6 +93,8 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | `cad_info` | 只读几何元信息（格式/数量/包围盒/单位/图层） |
 | `cad_create_prim` | 基本体（mm，Z-up），`at` 定位、`axis` 定向（精确轴角旋转） |
 | `cad_extrude_profile` | XY 平面闭合多边形沿 +Z 拉伸成实体 |
+| `cad_loft` | 放样：多个闭合截面（各自平面内的 [x,y,z…] 环）蒙皮成体，截面形状/点数可不同，`ruled` 直纹 |
+| `cad_sweep` | 扫掠：闭合 2D 轮廓沿 3D 路径（[x,y,z…]）扫出实体；轮廓自动置于路径起点垂面，无需手工定向 |
 | `cad_boolean` | fuse / cut / common（经典打孔：plate cut cylinder） |
 | `cad_fillet` | 全锐边等半径圆角 |
 | `cad_transform` | 平移 / 欧拉旋转 / 镜像 |

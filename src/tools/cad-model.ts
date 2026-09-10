@@ -497,6 +497,84 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     presentResult: () => ({ card: 'generic', title: 'CAD extrude' }),
   }) as unknown as ToolDefinition
 
+  const cadLoft = defineTool({
+    name: 'cad_loft',
+    description:
+      'Loft (放样): skin a solid through successive closed sections. `sections` is a list of ≥2 loops, each a flat [x0,y0,z0, x1,y1,z1, …] triplet list in its own plane (≥3 points, auto-closed), ordered along the loft. ' +
+      'Sections may differ in shape and point count (e.g. a square lofted to a hexagon). `ruled` keeps the sides straight instead of smoothing. ' +
+      'Each result passes a BRepCheck validity gate: a self-intersecting or degenerate loft is rejected with a clear message instead of storing an unusable body.',
+    parameters: {
+      sections: {
+        type: 'array',
+        required: true,
+        description: 'Ordered sections, each a flat [x,y,z,…] loop (≥9 numbers).',
+        items: { type: 'array', items: { type: 'number' }, description: 'One closed section loop.' },
+      },
+      ruled: { type: 'boolean', description: 'Straight (ruled) sides instead of a smoothed surface (default false).' },
+      solid: { type: 'boolean', description: 'Cap the ends into a solid (default true).' },
+      name: { type: 'string', description: 'Optional display name.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodyId: { type: 'string', required: true },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      if (!Array.isArray(args.sections) || args.sections.length < 2) throw new Error('sections must list at least 2 closed loops')
+      const bodyId = nextBodyId()
+      const op: ModelOp = { kind: 'loft', bodyId, sections: args.sections, solid: args.solid, ruled: args.ruled, name: args.name }
+      const result = await runModelOp(op)
+      return syncScene(op, result) as never
+    },
+    presentCall: () => ({ card: 'generic', title: 'CAD loft', kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD loft' }),
+  }) as unknown as ToolDefinition
+
+  const cadSweep = defineTool({
+    name: 'cad_sweep',
+    description:
+      'Sweep (扫掠): pipe a closed 2D profile along a 3D path. `profile` is a flat [x0,y0, x1,y1, …] outline (≥3 points, auto-closed) placed in the plane PERPENDICULAR TO THE PATH\'S START TANGENT, so the outline\'s 2D axes map onto that plane — no manual orientation needed. ' +
+      '`path` is a flat [x0,y0,z0, …] polyline. Straight, collinear and gently curved paths give exact solids; a SHARP direction change with a section large relative to the corner self-intersects — such a result is REJECTED by the BRepCheck validity gate (the error names the cause), so round or chamfer the corners in the path.',
+    parameters: {
+      profile: { type: 'array', required: true, items: { type: 'number' }, description: 'Closed [x,y,…] outline placed on the start plane (≥6 numbers).' },
+      path: { type: 'array', required: true, items: { type: 'number' }, description: 'Sweep path as [x,y,z,…] triplets (≥6 numbers).' },
+      name: { type: 'string', description: 'Optional display name.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodyId: { type: 'string', required: true },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const bodyId = nextBodyId()
+      const op: ModelOp = { kind: 'sweep', bodyId, profile: args.profile, path: args.path, name: args.name }
+      const result = await runModelOp(op)
+      return syncScene(op, result) as never
+    },
+    presentCall: () => ({ card: 'generic', title: 'CAD sweep', kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD sweep' }),
+  }) as unknown as ToolDefinition
+
   const cadBoolean = defineTool({
     name: 'cad_boolean',
     description:
@@ -1151,6 +1229,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   return [
     cadCreatePrim,
     cadExtrude,
+    cadLoft,
+    cadSweep,
     cadBoolean,
     cadFillet,
     cadTransform,
@@ -1173,6 +1253,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 export const MODEL_TOOL_NAMES = [
   'cad_create_prim',
   'cad_extrude_profile',
+  'cad_loft',
+  'cad_sweep',
   'cad_boolean',
   'cad_fillet',
   'cad_transform',
