@@ -43,6 +43,8 @@ export interface OpResult {
   meshes?: Array<WorkerMesh & { bodyId: string }>
   bytes?: ArrayBuffer
   volume?: number
+  /** Center of mass [x,y,z] (occt.ts backend). */
+  centroid?: number[]
   deleted?: string
   cleared?: boolean
   views?: DrawingView[]

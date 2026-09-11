@@ -1043,6 +1043,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
           ...requiredCounts,
           ...commonOptional,
           volume: { type: 'number', required: true, description: 'Volume (mm³).' },
+          centroid: { type: 'array', items: { type: 'number' }, description: 'Center of mass [x,y,z] (occt.ts backend).' },
         },
       },
       render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
@@ -1053,7 +1054,9 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       await resolveDoc(exec)
       const op: ModelOp = { kind: 'volume', target: args.target }
       const result = await runModelOp(op)
-      return syncScene(op, result) as never
+      const value = await syncScene(op, result)
+      if (Array.isArray(result.centroid)) value.centroid = result.centroid
+      return value as never
     },
     presentCall: (args) => ({ card: 'generic', title: `CAD volume ${String(args.target)}`, kind: 'read' }),
     presentResult: () => ({ card: 'generic', title: 'CAD volume' }),
