@@ -31,7 +31,7 @@ switchable demo parts (bracket / flange / shaft):
 | --- | --- |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
-| 🏗️ Parametric modeling | Primitives (box/cylinder/sphere/cone/torus), profile extrusion, **loft** (multi-section skinning), **sweep** (profile along a path), booleans (fuse/cut/common), all-edge fillet, transforms (translate/rotate/mirror) — exact OCCT BRep, not a mesh approximation |
+| 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation |
 | 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
 | 📁 Multi-document file space | Named documents per workspace (`.dsh-cad/docs/`), each session bound to its own active document — new sessions start empty instead of inheriting leftovers; a folder button in the panel lists every document (preview / delete), and `cad_doc_new` / `cad_doc_open` manage the modeling target from chat |
 | 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, true OCCT hidden-line removal via the **occt.ts** kernel (an npm dependency, dashed); sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
@@ -98,6 +98,9 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_create_prim` | Primitives (mm, Z-up); `at` for placement, `axis` for orientation (exact axis-angle rotation) |
 | `cad_extrude_profile` | Extrude a closed XY-plane polygon along +Z into a solid |
 | `cad_loft` | Loft: skin a solid through successive closed sections (each a [x,y,z,…] loop in its own plane); sections may differ in shape and point count; `ruled` for straight sides |
+| `cad_revolve` | Solid of revolution: revolve a closed profile around an axis (profile coords = (radius, height); curve segments supported — rounded rims exact); optional `angle` |
+| `cad_chamfer` | Chamfer: bevel every sharp edge with one equal distance (mm) |
+| `cad_pattern` | Pattern: linear (`delta` spacing) or circular (principal axis + `at` point + sweep angle); creates copy bodies, fuse afterwards for one body |
 | `cad_sweep` | Sweep: pipe a closed 2D profile along a 3D [x,y,z,…] path; the profile is auto-placed on the start plane, so no manual orientation |
 | `cad_boolean` | fuse / cut / common (classic hole punching: plate cut cylinder) |
 | `cad_fillet` | Constant-radius fillet on all sharp edges |

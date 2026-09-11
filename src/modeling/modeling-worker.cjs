@@ -83,9 +83,61 @@ async function applyOp(op) {
     }
     case 'extrude_profile': {
       const bodyId = op.bodyId
-      const shape = adapter.makeExtrudedProfile(op.points, op.height ?? 10, op.base ?? 0)
+      // `profile` (segments/circle object) supersedes the legacy flat `points`;
+      // both forms flow through the same curve-aware builder.
+      const profile = op.profile ?? op.points
+      const shape = adapter.extrudeProfile2D(profile, op.height ?? 10, op.base ?? 0)
       bodies.set(bodyId, { shape, name: op.name ?? bodyId })
       return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
+    }
+    case 'revolve': {
+      const bodyId = op.bodyId
+      const shape = adapter.makeRevolve(op.profile, { axis: op.axis, at: op.at, angle: op.angle })
+      assertUsable(shape, 'revolve', '检查轮廓是否全部位于轴的一侧且共面')
+      bodies.set(bodyId, { shape, name: op.name ?? bodyId })
+      return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
+    }
+    case 'chamfer': {
+      const body = bodies.get(op.target)
+      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      const shape = adapter.chamferAll(body.shape, op.distance)
+      assertUsable(shape, 'chamfer', '距离可能超出相邻面')
+      body.shape = shape
+      return { bodyId: op.target, name: body.name, mesh: meshOf(shape, body.name) }
+    }
+    case 'pattern': {
+      const body = bodies.get(op.target)
+      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      const count = Math.max(1, Math.trunc(op.count))
+      const created = []
+      for (let i = 1; i < count; i++) {
+        const id = `${op.target}p${i}`
+        let shape
+        if (op.mode === 'circular') {
+          // Rotation about a principal axis through `at`: translate in, rotate,
+          // translate back (transform applies Euler rotations about the origin).
+          const axis = op.axis ?? [0, 0, 1]
+          const at = op.at ?? [0, 0, 0]
+          const step = ((op.angle ?? 360) / count) * i
+          const principal = Math.abs(axis[0]) > 0.9 ? [step, 0, 0]
+            : Math.abs(axis[1]) > 0.9 ? [0, step, 0]
+            : Math.abs(axis[2]) > 0.9 ? [0, 0, step]
+            : null
+          if (principal === null) throw new Error('circular pattern axes must be principal (+X/+Y/+Z)')
+          shape = adapter.transform(adapter.transform(
+            adapter.transform(body.shape, { translate: [-at[0], -at[1], -at[2]] }),
+            { rotate: principal },
+          ), { translate: [at[0], at[1], at[2]] })
+        } else {
+          shape = adapter.transform(body.shape, {
+            translate: [op.delta[0] * i, op.delta[1] * i, op.delta[2] * i],
+          })
+        }
+        const name = `${body.name}·${i}`
+        bodies.set(id, { shape, name })
+        created.push({ bodyId: id, name, mesh: meshOf(shape, name) })
+      }
+      return { bodyId: op.target, created }
     }
     case 'loft': {
       const bodyId = op.bodyId

@@ -462,9 +462,11 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   const cadExtrude = defineTool({
     name: 'cad_extrude_profile',
     description:
-      'Create a solid by extruding a closed polygon profile in the XY plane along +Z (mm). `points` is a flat [x0,y0, x1,y1, …] loop (≥3 points, auto-closed). Use cad_boolean with cylinders for holes.',
+      'Create a solid by extruding a closed profile in the XY plane along +Z (mm). `profile` accepts CURVE SEGMENTS — {start: [x,y], segments: [{type: "line"|"arc"|"bspline", …}]} (arc: to/center/ccw; bspline: through-points, sampled smooth curve) — or {circle: {center, radius}} for a round profile. ' +
+      'The legacy flat `points` polygon loop (≥3 points, auto-closed) still works. Use cad_boolean for holes.',
     parameters: {
-      points: { type: 'array', required: true, items: { type: 'number' }, description: 'Flat [x0,y0,x1,y1,…] loop (mm).' },
+      points: { type: 'array', items: { type: 'number' }, description: 'Legacy flat [x0,y0,x1,y1,…] polygon loop (mm).' },
+      profile: { type: 'json', description: 'Curve-segment profile: {start:[x,y], segments:[…]} or {circle:{center:[x,y], radius}}.' },
       height: { type: 'number', description: 'Extrusion height (mm, default 10).' },
       base: { type: 'number', description: 'Z of the profile plane (mm, default 0).' },
       name: { type: 'string', description: 'Optional display name.' },
@@ -485,11 +487,11 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     isConcurrencySafe: () => false,
     async execute(args, exec: unknown) {
       await resolveDoc(exec)
-      if (args.points.length < 6 || args.points.length % 2 !== 0) {
-        throw new Error('points must be a flat array of ≥3 [x,y] pairs (≥6 numbers)')
+      if (args.profile === undefined && (args.points === undefined || args.points.length < 6 || args.points.length % 2 !== 0)) {
+        throw new Error('provide a curve-segment `profile` object or a flat points array of ≥3 [x,y] pairs')
       }
       const bodyId = nextBodyId()
-      const op: ModelOp = { kind: 'extrude_profile', bodyId, points: args.points, height: args.height, base: args.base, name: args.name }
+      const op: ModelOp = { kind: 'extrude_profile', bodyId, ...(args.profile !== undefined ? { profile: args.profile } : { points: args.points }), height: args.height, base: args.base, name: args.name }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
     },
@@ -546,7 +548,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       'Sweep (扫掠): pipe a closed 2D profile along a 3D path. `profile` is a flat [x0,y0, x1,y1, …] outline (≥3 points, auto-closed) placed in the plane PERPENDICULAR TO THE PATH\'S START TANGENT, so the outline\'s 2D axes map onto that plane — no manual orientation needed. ' +
       '`path` is a flat [x0,y0,z0, …] polyline. Straight, collinear and gently curved paths give exact solids; a SHARP direction change with a section large relative to the corner self-intersects — such a result is REJECTED by the BRepCheck validity gate (the error names the cause), so round or chamfer the corners in the path.',
     parameters: {
-      profile: { type: 'array', required: true, items: { type: 'number' }, description: 'Closed [x,y,…] outline placed on the start plane (≥6 numbers).' },
+      profile: { type: 'json', required: true, description: 'Closed outline on the start plane: flat [x,y,…] array, {start, segments:[…]} curve chain, or {circle:{center,radius}}.' },
       path: { type: 'array', required: true, items: { type: 'number' }, description: 'Sweep path as [x,y,z,…] triplets (≥6 numbers).' },
       name: { type: 'string', description: 'Optional display name.' },
     },
@@ -573,6 +575,143 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     },
     presentCall: () => ({ card: 'generic', title: 'CAD sweep', kind: 'other' }),
     presentResult: () => ({ card: 'generic', title: 'CAD sweep' }),
+  }) as unknown as ToolDefinition
+
+  const cadRevolve = defineTool({
+    name: 'cad_revolve',
+    description:
+      'Revolve (旋转): sweep a closed 2D profile around an axis into a solid of revolution — shafts, wheels, vases, cones, spheres. Profile coordinates are (radius, height) relative to the axis: with the default +Z axis, profile [x,y] means radius x at height y. ' +
+      'Accepts the same curve-segment profiles as cad_extrude_profile (lines/arcs/bspline/circle), so rounded rims are exact. `angle` in degrees (default 360).',
+    parameters: {
+      profile: { type: 'json', required: true, description: 'Profile in (radius, height): flat [r0,h0, r1,h1,…] loop, {start, segments:[…]}, or {circle:{center,radius}}.' },
+      angle: { type: 'number', description: 'Sweep angle in degrees (default 360).' },
+      axis: { type: 'array', items: { type: 'number' }, description: 'Revolve axis direction [x,y,z] (default +Z).' },
+      at: { type: 'array', items: { type: 'number' }, description: 'A point the axis passes through [x,y,z] (default origin).' },
+      name: { type: 'string', description: 'Optional display name.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodyId: { type: 'string', required: true },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const bodyId = nextBodyId()
+      const op: ModelOp = {
+        kind: 'revolve', bodyId, profile: args.profile,
+        ...(args.angle !== undefined ? { angle: (args.angle * Math.PI) / 180 } : {}),
+        ...(Array.isArray(args.axis) ? { axis: args.axis as [number, number, number] } : {}),
+        ...(Array.isArray(args.at) ? { at: args.at as [number, number, number] } : {}),
+        ...(args.name !== undefined ? { name: args.name } : {}),
+      }
+      const result = await runModelOp(op)
+      return syncScene(op, result) as never
+    },
+    presentCall: () => ({ card: 'generic', title: 'CAD revolve', kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD revolve' }),
+  }) as unknown as ToolDefinition
+
+  const cadChamfer = defineTool({
+    name: 'cad_chamfer',
+    description: 'Chamfer (倒角): bevel every sharp edge of a body with one equal distance (mm). Fails when the distance exceeds the adjacent faces.',
+    parameters: {
+      target: bodyTarget,
+      distance: { type: 'number', required: true, description: 'Chamfer distance (mm).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodyId: { type: 'string', required: true },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const op: ModelOp = { kind: 'chamfer', target: args.target, distance: args.distance }
+      const result = await runModelOp(op)
+      return syncScene(op, result) as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD chamfer ${String(args.target)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD chamfer' }),
+  }) as unknown as ToolDefinition
+
+  const cadPattern = defineTool({
+    name: 'cad_pattern',
+    description:
+      'Pattern (阵列): replicate a body into `count` total placements. Linear: `delta` [dx,dy,dz] spacing per copy. Circular: rotate copies around a principal axis (+X/+Y/+Z) through `at` over `angle` degrees (default 360). Creates new bodies (target·1 … target·(count−1)); fuse afterwards for a single body.',
+    parameters: {
+      target: bodyTarget,
+      mode: { type: 'string', required: true, enum: ['linear', 'circular'] as const, description: 'Pattern mode.' },
+      count: { type: 'number', required: true, description: 'Total placements (≥2).' },
+      delta: { type: 'array', items: { type: 'number' }, description: 'linear: spacing [dx,dy,dz] per copy (mm).' },
+      axis: { type: 'array', items: { type: 'number' }, description: 'circular: principal axis [x,y,z] (default +Z).' },
+      at: { type: 'array', items: { type: 'number' }, description: 'circular: axis point [x,y,z] (default origin).' },
+      angle: { type: 'number', description: 'circular: total sweep in degrees (default 360).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodyId: { type: 'string', required: true },
+          created: { type: 'array', items: { type: 'string' }, required: true, description: 'Ids of the newly created copy bodies.' },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) + '\ncreated: ' + (value.created as string[]).join(', ') }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      if (args.mode === 'linear' && !Array.isArray(args.delta)) throw new Error('linear patterns need delta: [dx,dy,dz]')
+      const op: ModelOp = {
+        kind: 'pattern', target: args.target, mode: args.mode, count: args.count,
+        ...(Array.isArray(args.delta) ? { delta: args.delta as [number, number, number] } : {}),
+        ...(Array.isArray(args.axis) ? { axis: args.axis as [number, number, number] } : {}),
+        ...(Array.isArray(args.at) ? { at: args.at as [number, number, number] } : {}),
+        ...(args.angle !== undefined ? { angle: args.angle } : {}),
+      }
+      const result = await runModelOp(op)
+      const created = (result.created ?? []).map((entry) => {
+        if (entry.mesh !== undefined) meshCache.set(entry.bodyId, mirrorMesh(entry.mesh, entry.bodyId))
+        return entry.bodyId
+      })
+      await document.record(op, null)
+      const meshes = [...meshCache.values()]
+      const sceneUrlBase = deps.ensureSceneRoute()
+      if (sceneUrlBase !== null && meshes.length > 0) {
+        await deps.store.publish(document.doc.docId, meshes)
+      }
+      const value: Record<string, unknown> = {
+        bodyId: args.target,
+        created,
+        triangles: meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0),
+        bodies: meshes.length,
+        version: document.doc.version,
+        ...(sceneUrlBase !== null ? { sceneUrl: `${sceneUrlBase.replace('/scene', '/bin')}/${document.doc.docId}?v=${document.doc.version}` } : {}),
+      }
+      return value as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD ${String(args.mode ?? '')} pattern ×${String(args.count ?? '')}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD pattern' }),
   }) as unknown as ToolDefinition
 
   const cadBoolean = defineTool({
@@ -1229,6 +1368,9 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   return [
     cadCreatePrim,
     cadExtrude,
+    cadRevolve,
+    cadChamfer,
+    cadPattern,
     cadLoft,
     cadSweep,
     cadBoolean,
@@ -1253,6 +1395,9 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 export const MODEL_TOOL_NAMES = [
   'cad_create_prim',
   'cad_extrude_profile',
+  'cad_revolve',
+  'cad_chamfer',
+  'cad_pattern',
   'cad_loft',
   'cad_sweep',
   'cad_boolean',

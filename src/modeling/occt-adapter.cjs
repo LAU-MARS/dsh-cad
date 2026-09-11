@@ -278,6 +278,23 @@ function createAdapter(occt) {
     return poly.Wire()
   }
 
+  // ── loft / sweep ───────────────────────────────────────────────────────────
+  /**
+   * Closed polygon wire from flat [x,y,z, …] triplets. Loft sections carry
+   * explicit 3D coordinates (each section sits in its own plane), so unlike
+   * makeExtrudedProfile there is no implicit base plane here.
+   */
+  function closedWire(points) {
+    if (points.length < 9 || points.length % 3 !== 0) {
+      throw new Error('a section needs at least 3 [x,y,z] triplets (≥9 numbers)')
+    }
+    const poly = new occt.BRepBuilderAPI_MakePolygon_1()
+    for (let i = 0; i + 2 < points.length; i += 3) poly.Add_1(pnt(points[i], points[i + 1], points[i + 2]))
+    poly.Close()
+    if (!poly.IsDone()) throw new Error('section polygon is invalid (duplicate or collinear-only points)')
+    return poly.Wire()
+  }
+
   /** A planar FACE in the given frame's plane (MakePipe needs a face, not a wire). */
   function faceInFrame(ax3, points2d) {
     const poly = new occt.BRepBuilderAPI_MakePolygon_1()
@@ -330,9 +347,10 @@ function createAdapter(occt) {
    * `isValid()` reports that, and the tool surfaces it.
    */
   function makeSweep(profile, pathPoints) {
-    if (!Array.isArray(profile) || profile.length < 6 || profile.length % 2 !== 0) {
-      throw new Error('the profile needs at least 3 [x,y] pairs (≥6 numbers)')
-    }
+    const profileOk = Array.isArray(profile)
+      ? profile.length >= 6 && profile.length % 2 === 0
+      : profile !== null && typeof profile === 'object'
+    if (!profileOk) throw new Error('the profile needs a flat [x,y,…] array (≥6 numbers) or a {start, segments}/{circle} object')
     if (!Array.isArray(pathPoints) || pathPoints.length < 6 || pathPoints.length % 3 !== 0) {
       throw new Error('the path needs at least 2 [x,y,z] triplets (≥6 numbers)')
     }
@@ -357,12 +375,11 @@ function createAdapter(occt) {
     const vxLen = Math.hypot(vx[0], vx[1], vx[2])
     if (vxLen < 1e-12) throw new Error('could not build a profile frame for the path tangent')
     vx = [vx[0] / vxLen, vx[1] / vxLen, vx[2] / vxLen]
-    const ax3 = new occt.gp_Ax3_3(
-      pnt(pathPoints[0], pathPoints[1], pathPoints[2]),
-      dir(n[0], n[1], n[2]),
-      dir(vx[0], vx[1], vx[2]),
-    )
-    const profileFace = faceInFrame(ax3, profile)
+    const o3 = [pathPoints[0], pathPoints[1], pathPoints[2]]
+    const v3 = [vx[0], vx[1], vx[2]] // in-plane X = vx
+    const w3 = [n[1] * vx[2] - n[2] * vx[1], n[2] * vx[0] - n[0] * vx[2], n[0] * vx[1] - n[1] * vx[0]] // n × vx
+    const wire = profileWire(profile, o3, v3, w3)
+    const profileFace = faceFromWire(wire, o3, v3, w3)
     const pipe = new occt.BRepOffsetAPI_MakePipe_1(spine.Wire(), profileFace)
     pipe.Build()
     if (!pipe.IsDone()) throw new Error('sweep failed (check the path and profile)')
@@ -379,9 +396,219 @@ function createAdapter(occt) {
     }
   }
 
+  // ── segment-based profiles (line / arc / bspline / circle) ────────────────
+  /**
+   * Build a CLOSED wire from a segment-based profile laid into the frame
+   * (origin o3, basis u3/v3). Segment forms:
+   *   { type: 'line', to: [x,y] }
+   *   { type: 'arc', to: [x,y], center: [cx,cy], ccw?: true }
+   *   { type: 'bspline', through: [[x,y],…], samples?: n }
+   * A final line closes the chain back to the start. Verified spellings:
+   * gp_Circ_2(ax2,R) → MakeEdge_9(circ, a1, a2) for arcs.
+   */
+  function to3Of(o3, u3, v3, p2) {
+    return pnt(o3[0] + u3[0] * p2[0] + v3[0] * p2[1], o3[1] + u3[1] * p2[0] + v3[1] * p2[1], o3[2] + u3[2] * p2[0] + v3[2] * p2[1])
+  }
+
+  function segmentWire(profile, o3, u3, v3) {
+    const segs = Array.isArray(profile.segments) ? profile.segments : []
+    if (segs.length === 0) throw new Error('a segment profile needs at least one segment')
+    if (!Array.isArray(profile.start) || profile.start.length !== 2) throw new Error('profile.start must be [x,y]')
+    const nrm = [
+      u3[1] * v3[2] - u3[2] * v3[1],
+      u3[2] * v3[0] - u3[0] * v3[2],
+      u3[0] * v3[1] - u3[1] * v3[0],
+    ]
+    const mkWire = new occt.BRepBuilderAPI_MakeWire_1()
+    const addLine = (from2, to2) => {
+      mkWire.Add_1(new occt.BRepBuilderAPI_MakeEdge_3(to3Of(o3, u3, v3, from2), to3Of(o3, u3, v3, to2)).Edge())
+    }
+    let cur = [profile.start[0], profile.start[1]]
+    for (const seg of segs) {
+      if (seg === null || typeof seg !== 'object') throw new Error('each profile segment must be an object')
+      if (seg.type === 'line') {
+        if (!Array.isArray(seg.to) || seg.to.length !== 2) throw new Error("line segment needs 'to: [x,y]'")
+        addLine(cur, seg.to)
+        cur = seg.to
+      } else if (seg.type === 'arc') {
+        if (!Array.isArray(seg.to) || seg.to.length !== 2 || !Array.isArray(seg.center) || seg.center.length !== 2) {
+          throw new Error("arc segment needs 'to: [x,y]' and 'center: [cx,cy]'")
+        }
+        const c = seg.center
+        const r0 = Math.hypot(cur[0] - c[0], cur[1] - c[1])
+        const r1 = Math.hypot(seg.to[0] - c[0], seg.to[1] - c[1])
+        if (Math.abs(r0 - r1) > 1e-4 * Math.max(r0, r1) + 1e-6) {
+          throw new Error(`arc endpoints are not equidistant from the center (r=${r0.toFixed(4)} vs ${r1.toFixed(4)})`)
+        }
+        const a0 = Math.atan2(cur[1] - c[1], cur[0] - c[0])
+        let a1 = Math.atan2(seg.to[1] - c[1], seg.to[0] - c[0])
+        if (seg.ccw !== false) { if (a1 <= a0) a1 += Math.PI * 2 } else { if (a1 >= a0) a1 -= Math.PI * 2 }
+        const circ = new occt.gp_Circ_2(new occt.gp_Ax2_2(to3Of(o3, u3, v3, c), dir(nrm[0], nrm[1], nrm[2]), dir(u3[0], u3[1], u3[2])), r0)
+        mkWire.Add_1(new occt.BRepBuilderAPI_MakeEdge_9(circ, a0, a1).Edge())
+        cur = seg.to
+      } else if (seg.type === 'bspline') {
+        const through = Array.isArray(seg.through) ? seg.through : []
+        if (through.length < 2) throw new Error("bspline segment needs 'through: [[x,y],…]' (≥2 points)")
+        const samples = Math.max(8, Math.trunc(seg.samples ?? 24))
+        // Catmull-Rom through the given points, sampled into a dense polyline:
+        // this kernel build cannot extract points back from a Geom_BSplineCurve,
+        // so the smooth curve is carried as a high-density edge chain.
+        const pts = [cur, ...through]
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[Math.max(0, i - 1)]
+          const p1 = pts[i]
+          const p2 = pts[i + 1]
+          const p3 = pts[Math.min(pts.length - 1, i + 2)]
+          for (let s = 1; s <= samples; s++) {
+            const t = s / samples
+            const t2 = t * t
+            const t3 = t2 * t
+            const x = 0.5 * ((2 * p1[0]) + (-p0[0] + p2[0]) * t + (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 + (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3)
+            const y = 0.5 * ((2 * p1[1]) + (-p0[1] + p2[1]) * t + (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 + (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3)
+            addLine(cur, [x, y])
+            cur = [x, y]
+          }
+        }
+      } else {
+        throw new Error(`unknown profile segment type: ${String(seg.type)}`)
+      }
+    }
+    if (Math.hypot(cur[0] - profile.start[0], cur[1] - profile.start[1]) > 1e-9) {
+      addLine(cur, profile.start)
+    }
+    if (!mkWire.IsDone()) throw new Error('profile wire construction failed')
+    return mkWire.Wire()
+  }
+
+  /** A closed circular wire (the profile = one circle). */
+  function circleWire(center2, radius, o3, u3, v3) {
+    const c3 = to3Of(o3, u3, v3, center2)
+    const nrm = [u3[1] * v3[2] - u3[2] * v3[1], u3[2] * v3[0] - u3[0] * v3[2], u3[0] * v3[1] - u3[1] * v3[0]]
+    const circ = new occt.gp_Circ_2(new occt.gp_Ax2_2(c3, dir(nrm[0], nrm[1], nrm[2]), dir(u3[0], u3[1], u3[2])), radius)
+    const mkWire = new occt.BRepBuilderAPI_MakeWire_1()
+    mkWire.Add_1(new occt.BRepBuilderAPI_MakeEdge_8(circ).Edge())
+    if (!mkWire.IsDone()) throw new Error('circle wire construction failed')
+    return mkWire.Wire()
+  }
+
+  /**
+   * A 2D profile in one of three forms, laid into the (o3, u3, v3) frame and
+   * returned as a closed wire:
+   *   { start, segments: [...] }     — segment chain (line/arc/bspline)
+   *   { circle: { center, radius } } — a full circle
+   *   [x0,y0, x1,y1, ...]            — plain polyline (the historical form)
+   */
+  function profileWire(profile, o3, u3, v3) {
+    if (Array.isArray(profile)) {
+      const pts = []
+      for (let i = 0; i + 1 < profile.length; i += 2) {
+        const p3 = to3Of(o3, u3, v3, [profile[i], profile[i + 1]])
+        pts.push(p3.X(), p3.Y(), p3.Z())
+      }
+      return closedWire(pts)
+    }
+    if (profile !== null && typeof profile === 'object') {
+      if (profile.circle !== undefined) {
+        const c = profile.circle
+        if (!Array.isArray(c.center) || typeof c.radius !== 'number') throw new Error("circle profile needs 'center: [x,y]' and 'radius'")
+        return circleWire(c.center, c.radius, o3, u3, v3)
+      }
+      return segmentWire(profile, o3, u3, v3)
+    }
+    throw new Error('a profile must be a flat points array or a {start, segments}/{circle} object')
+  }
+
+  /**
+   * Extrude any 2D profile form (segments / circle / flat points) from the
+   * plane z = base along +Z by height — the segment-curve generalization of
+   * makeExtrudedProfile.
+   */
+  function extrudeProfile2D(profile, height, base = 0) {
+    if (height <= 0) throw new Error('the extrusion height must be positive')
+    const wire = profileWire(profile, [0, 0, base], [1, 0, 0], [0, 1, 0])
+    const face = faceFromWire(wire, [0, 0, base], [1, 0, 0], [0, 1, 0])
+    const algo = new occt.BRepPrimAPI_MakePrism_1(face, vec(0, 0, height), true, false)
+    return shapeOf(algo)
+  }
+
+  /**
+   * A planar FACE from a wire in the (o3, u3, v3) frame. `flip` reverses the
+   * face normal — revolve needs the axis×radial side for axis-touching
+   * profiles (a profile edge ON the axis fails from the other side).
+   */
+  function faceFromWire(wire, o3, u3, v3, flip = false) {
+    const nrm = [
+      u3[1] * v3[2] - u3[2] * v3[1],
+      u3[2] * v3[0] - u3[0] * v3[2],
+      u3[0] * v3[1] - u3[1] * v3[0],
+    ]
+    const sign = flip ? -1 : 1
+    const builder = new occt.BRepBuilderAPI_MakeFace_3(new occt.gp_Pln_2(new occt.gp_Ax3_3(pnt(o3[0], o3[1], o3[2]), dir(sign * nrm[0], sign * nrm[1], sign * nrm[2]), dir(u3[0], u3[1], u3[2]))))
+    builder.Add(wire)
+    const face = builder.Face()
+    if (!builder.IsDone() || face.IsNull()) throw new Error('profile face construction failed')
+    return face
+  }
+
+  // ── revolve / chamfer / shell ──────────────────────────────────────────────
+
+  /**
+   * Revolve (旋转): sweep a 2D profile around an axis through `at` with
+   * direction `axis` by `angle` radians (default 2π). The profile's u axis is
+   * a radial direction perpendicular to the axis, v runs ALONG the axis —
+   * e.g. with the default +Z axis, profile [x,y] means (radius, height).
+   * Verified: BRepPrimAPI_MakeRevol_1(face, ax1, angle, copy=false).
+   */
+  function makeRevolve(profile, options = {}) {
+    const axis = options.axis ?? [0, 0, 1]
+    const at = options.at ?? [0, 0, 0]
+    const angle = options.angle ?? Math.PI * 2
+    const alen = Math.hypot(axis[0], axis[1], axis[2])
+    if (alen < 1e-12) throw new Error('the revolve axis must be a non-zero direction')
+    const n = [axis[0] / alen, axis[1] / alen, axis[2] / alen]
+    const helper = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]
+    const d = helper[0] * n[0] + helper[1] * n[1] + helper[2] * n[2]
+    const u = [helper[0] - n[0] * d, helper[1] - n[1] * d, helper[2] - n[2] * d]
+    const uLen = Math.hypot(u[0], u[1], u[2])
+    const radial = [u[0] / uLen, u[1] / uLen, u[2] / uLen]
+    const wire = profileWire(profile, at, radial, n)
+    const ax1 = new occt.gp_Ax1_2(pnt(at[0], at[1], at[2]), dir(n[0], n[1], n[2]))
+    // Orientation matrix (verified): the plain (radial, axis) face revolves
+    // validly at every angle with positive volume; the flipped face suits
+    // axis-touching profiles but yields INVALID partial revolves — so try the
+    // plain face first, fall back to flipped only when it fails outright.
+    const attempts = [false, true]
+    for (const flip of attempts) {
+      const algo = new occt.BRepPrimAPI_MakeRevol_1(faceFromWire(wire, at, radial, n, flip), ax1, angle, false)
+      algo.Build()
+      if (!algo.IsDone()) continue
+      const shape = algo.Shape()
+      if (isValid(shape) === false) continue
+      return volume(shape) < 0 ? (() => { try { return shape.Reversed() } catch { return shape } })() : shape
+    }
+    throw new Error('revolve failed (check that the profile stays on one side of the axis and is planar)')
+  }
+
+  /** Chamfer every sharp edge with one equal distance (mm). */
+  function chamferAll(shape, distance) {
+    const algo = new occt.BRepFilletAPI_MakeChamfer(shape)
+    const explorer = new occt.TopExp_Explorer_2(shape, ENUM.TopAbs_EDGE, ENUM.TopAbs_SHAPE)
+    let edges = 0
+    while (explorer.More()) {
+      algo.Add_2(distance, castEdge(explorer.Current()))
+      edges++
+      explorer.Next()
+    }
+    if (edges === 0) throw new Error('no edges to chamfer')
+    algo.Build()
+    if (!algo.IsDone()) throw new Error('chamfer failed (distance may exceed the adjacent faces)')
+    return algo.Shape()
+  }
+
   return {
     pnt, dir, ENUM,
-    makePrim, makeExtrudedProfile, makeLoft, makeSweep, isValid,
+    makePrim, makeExtrudedProfile, extrudeProfile2D, makeLoft, makeSweep, isValid,
+    profileWire, faceFromWire, makeRevolve, chamferAll,
     boolean, filletAll, transform,
     tessellate, faceNormals, exportFile, volume,
   }
