@@ -64,6 +64,8 @@ export type ModelOp =
   | { kind: 'loft'; bodyId: string; sections: number[][]; solid?: boolean; ruled?: boolean; name?: string }
   | { kind: 'revolve'; bodyId: string; profile: unknown; angle?: number; axis?: [number, number, number]; at?: [number, number, number]; name?: string }
   | { kind: 'chamfer'; target: string; distance: number }
+  | { kind: 'shell'; target: string; thickness: number; openNormals?: Array<[number, number, number]>; faces?: number[] }
+  | { kind: 'draft'; target: string; angle: number; direction?: [number, number, number]; faces?: number[] }
   | { kind: 'pattern'; target: string; mode: 'linear' | 'circular'; count: number; delta?: [number, number, number]; axis?: [number, number, number]; at?: [number, number, number]; angle?: number }
   | { kind: 'sweep'; bodyId: string; profile: unknown; path: number[]; name?: string }
   | { kind: 'boolean'; op: 'fuse' | 'cut' | 'common'; target: string; tools: string[] }

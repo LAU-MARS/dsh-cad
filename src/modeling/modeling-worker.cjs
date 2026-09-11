@@ -37,7 +37,10 @@ function assertUsable(shape, what, hint) {
   }
 }
 
-/** bodyId → { shape, name } — the live document. */
+/** bodyId → { shape, name, step? } — the live document. A body whose solid
+ * was produced by an occt.ts-only op (shell/draft) is HOSTED: `step` carries
+ * the STEP bytes as the source of truth and `shape` is null, because
+ * opencascade.js in this build cannot read geometry back. */
 const bodies = new Map()
 let nextBodyNumber = 1
 
@@ -98,8 +101,7 @@ async function applyOp(op) {
       return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
     }
     case 'chamfer': {
-      const body = bodies.get(op.target)
-      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      const body = requireShape(op.target, 'chamfer')
       const shape = adapter.chamferAll(body.shape, op.distance)
       assertUsable(shape, 'chamfer', '距离可能超出相邻面')
       body.shape = shape
@@ -153,14 +155,31 @@ async function applyOp(op) {
       bodies.set(bodyId, { shape, name: op.name ?? bodyId })
       return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
     }
+    case 'shell': {
+      const body = bodies.get(op.target)
+      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      const stepIn = body.step ?? adapter.exportFile(body.shape, 'step')
+      const bridge = await getOcctBridge()
+      if (bridge === null) throw new Error('shell requires the occt.ts kernel (>= 0.3.0) — reinstall dsh-cad so the dependency pulls it')
+      const out = bridge.hostedSolidOp('shell', stepIn, { thickness: op.thickness, openNormals: op.openNormals, faces: op.faces, name: body.name })
+      body.step = out.step
+      body.shape = null
+      return { bodyId: op.target, name: body.name, volume: out.volume, mesh: out.mesh }
+    }
+    case 'draft': {
+      const body = bodies.get(op.target)
+      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      const stepIn = body.step ?? adapter.exportFile(body.shape, 'step')
+      const bridge = await getOcctBridge()
+      if (bridge === null) throw new Error('draft requires the occt.ts kernel (>= 0.3.0) — reinstall dsh-cad so the dependency pulls it')
+      const out = bridge.hostedSolidOp('draft', stepIn, { angle: op.angle, direction: op.direction, faces: op.faces, name: body.name })
+      body.step = out.step
+      body.shape = null
+      return { bodyId: op.target, name: body.name, volume: out.volume, mesh: out.mesh }
+    }
     case 'boolean': {
-      const target = bodies.get(op.target)
-      if (target === undefined) throw new Error(`unknown body: ${op.target}`)
-      const tools = op.tools.map((id) => {
-        const tool = bodies.get(id)
-        if (tool === undefined) throw new Error(`unknown body: ${id}`)
-        return tool.shape
-      })
+      const target = requireShape(op.target, 'boolean')
+      const tools = op.tools.map((id) => requireShape(id, 'boolean').shape)
       const shape = adapter.boolean(op.op, target.shape, tools)
       target.shape = shape
       // Consumed tool bodies are removed from the document (CAD convention).
@@ -171,15 +190,13 @@ async function applyOp(op) {
       return { bodyId: op.target, name: target.name, removed, mesh: meshOf(shape, target.name) }
     }
     case 'fillet': {
-      const body = bodies.get(op.target)
-      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      const body = requireShape(op.target, 'fillet')
       const { shape, edges } = adapter.filletAll(body.shape, op.radius ?? 1)
       body.shape = shape
       return { bodyId: op.target, name: body.name, edges, mesh: meshOf(shape, body.name) }
     }
     case 'transform': {
-      const body = bodies.get(op.target)
-      if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      const body = requireShape(op.target, 'transform')
       const shape = adapter.transform(body.shape, {
         translate: op.translate,
         rotate: op.rotate,
@@ -191,6 +208,7 @@ async function applyOp(op) {
     case 'tessellate_all': {
       const meshes = []
       for (const [bodyId, body] of bodies) {
+        if (body.shape === null || body.shape === undefined) continue // hosted bodies re-mesh via their ops
         meshes.push({ bodyId, name: body.name, ...meshOf(body.shape, body.name) })
       }
       return { meshes }
@@ -198,6 +216,11 @@ async function applyOp(op) {
     case 'export': {
       const body = bodies.get(op.target)
       if (body === undefined) throw new Error(`unknown body: ${op.target}`)
+      if (body.step !== undefined) {
+        // Hosted body: the STEP bytes ARE the parametric exchange form.
+        if (op.format !== 'step') throw new Error('stl export of a hosted body requires tessellation — export .step, or re-export before shelling')
+        return { bytes: body.step.buffer.slice(body.step.byteOffset, body.step.byteOffset + body.step.byteLength) }
+      }
       const bytes = adapter.exportFile(body.shape, op.format)
       return { bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) }
     }
@@ -258,7 +281,13 @@ async function applyOp(op) {
     case 'volume': {
       const body = bodies.get(op.target)
       if (body === undefined) throw new Error(`unknown body: ${op.target}`)
-      return { volume: adapter.volume(body.shape) }
+      if (body.step !== undefined) {
+        // Hosted body: ask the occt.ts kernel directly.
+        const bridge = await getOcctBridge()
+        if (bridge === null) throw new Error('volume on a hosted body requires the occt.ts kernel')
+        return { volume: bridge.volumeOf(body.step) }
+      }
+      return { volume: Math.abs(adapter.volume(body.shape)) }
     }
     case 'delete': {
       if (!bodies.delete(op.target)) throw new Error(`unknown body: ${op.target}`)
@@ -304,6 +333,16 @@ async function getOcctBridge() {
     occtBridge = null
   }
   return occtBridge
+}
+
+/** Reject ops that need an opencascade.js BRep on a hosted body. */
+function requireShape(bodyId, what) {
+  const body = bodies.get(bodyId)
+  if (body === undefined) throw new Error(`unknown body: ${bodyId}`)
+  if (body.shape === undefined || body.shape === null) {
+    throw new Error(`${bodyId} is hosted on the occt.ts kernel (created by shell/draft); ${what} needs the opencascade.js BRep and cannot read hosted geometry back — model the feature before shelling, or reconstruct the body`)
+  }
+  return body
 }
 
 async function drawingViews(op) {

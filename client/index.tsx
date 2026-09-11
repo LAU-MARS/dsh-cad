@@ -32,6 +32,8 @@ const CAD_TOOL_KEYS = [
   'cad_extrude_profile',
   'cad_revolve',
   'cad_chamfer',
+  'cad_shell',
+  'cad_draft',
   'cad_pattern',
   'cad_loft',
   'cad_sweep',

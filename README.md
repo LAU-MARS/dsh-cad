@@ -31,7 +31,7 @@ switchable demo parts (bracket / flange / shaft):
 | --- | --- |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
-| 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation |
+| 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **shell**, **draft**, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation |
 | 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
 | 📁 Multi-document file space | Named documents per workspace (`.dsh-cad/docs/`), each session bound to its own active document — new sessions start empty instead of inheriting leftovers; a folder button in the panel lists every document (preview / delete), and `cad_doc_new` / `cad_doc_open` manage the modeling target from chat |
 | 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, true OCCT hidden-line removal via the **occt.ts** kernel (an npm dependency, dashed); sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
@@ -101,6 +101,8 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_revolve` | Solid of revolution: revolve a closed profile around an axis (profile coords = (radius, height); curve segments supported — rounded rims exact); optional `angle` |
 | `cad_chamfer` | Chamfer: bevel every sharp edge with one equal distance (mm) |
 | `cad_pattern` | Pattern: linear (`delta` spacing) or circular (principal axis + `at` point + sweep angle); creates copy bodies, fuse afterwards for one body |
+| `cad_shell` | Shell: hollow to a wall thickness (inward, outer skin preserved); `open` lists outward normals of the faces to open (empty = sealed). Runs on the occt.ts kernel; the result is a HOSTED body |
+| `cad_draft` | Draft: tilt the walls `angle` degrees about a neutral plane (mold release); `direction` is the pull direction, walls auto-selected by default. Runs on the occt.ts kernel; the result is a HOSTED body |
 | `cad_sweep` | Sweep: pipe a closed 2D profile along a 3D [x,y,z,…] path; the profile is auto-placed on the start plane, so no manual orientation |
 | `cad_boolean` | fuse / cut / common (classic hole punching: plate cut cylinder) |
 | `cad_fillet` | Constant-radius fillet on all sharp edges |
@@ -190,6 +192,14 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   exponential-map rotation, radians). Solver capability is staged
   (point-distance-to-origin today) — the plumbing contract is finished and needs
   no changes as it grows
+- **Dual-kernel hosted bodies (shell/draft)**: opencascade.js cannot read
+  geometry BACK (STEPControl_Reader / BRepTools readers are opaque no-method
+  shells in that build), so shell/draft run on occt.ts (>= 0.3.0, crossing as
+  STEP bytes) and the result stays HOSTED as STEP bytes on the occt.ts side —
+  volume, .step export and display meshes keep working through occt.ts, while
+  opencascade.js-exclusive edits (fillet/chamfer/loft/sweep/revolve/boolean)
+  on a hosted body are REFUSED with guidance to model first and shell last.
+  Face selection matches `describe()` plane normals (outermost along ±normal)
 - **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
   by the host module table), Z-up CAD convention, empty scene with XYZ axis labels
   and a ground grid always displayed

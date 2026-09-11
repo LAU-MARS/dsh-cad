@@ -651,6 +651,74 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     presentResult: () => ({ card: 'generic', title: 'CAD chamfer' }),
   }) as unknown as ToolDefinition
 
+  const cadShell = defineTool({
+    name: 'cad_shell',
+    description:
+      'Shell (抽壳): hollow a solid into a wall of `thickness` mm (the wall grows inward, the outer skin is preserved). `open` lists outward NORMALS [x,y,z] whose faces become openings (e.g. [[0,0,1]] opens the top of a box; empty = sealed hollow). ' +
+      'Runs on the occt.ts kernel (>= 0.3.0): the result becomes a HOSTED body — volume/export(.step)/display keep working, but opencascade.js-only edits (fillet/chamfer/loft/sweep/revolve/boolean) on it are refused, so do those before shelling.',
+    parameters: {
+      target: bodyTarget,
+      thickness: { type: 'number', required: true, description: 'Wall thickness (mm, positive).' },
+      open: { type: 'array', items: { type: 'array', items: { type: 'number' } }, description: 'Outward normals of the faces to open, e.g. [[0,0,1]].' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodyId: { type: 'string', required: true },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const op: ModelOp = { kind: 'shell', target: args.target, thickness: args.thickness, ...(Array.isArray(args.open) ? { openNormals: args.open as Array<[number, number, number]> } : {}) }
+      const result = await runModelOp(op)
+      return syncScene(op, result) as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD shell ${String(args.target)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD shell' }),
+  }) as unknown as ToolDefinition
+
+  const cadDraft = defineTool({
+    name: 'cad_draft',
+    description:
+      'Draft (拔模): tilt the walls of a solid by `angle` degrees for mold release — faces pivot about a neutral plane, dimensions there unchanged. `direction` is the pull direction (default +Z); by default the faces parallel to it (the walls) are drafted. ' +
+      'Runs on the occt.ts kernel (>= 0.3.0): the result becomes a HOSTED body (same caveats as cad_shell).',
+    parameters: {
+      target: bodyTarget,
+      angle: { type: 'number', required: true, description: 'Draft angle in degrees (positive opens the walls toward the pull direction).' },
+      direction: { type: 'array', items: { type: 'number' }, description: 'Pull direction [x,y,z] (default +Z).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodyId: { type: 'string', required: true },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const op: ModelOp = { kind: 'draft', target: args.target, angle: args.angle, ...(Array.isArray(args.direction) ? { direction: args.direction as [number, number, number] } : {}) }
+      const result = await runModelOp(op)
+      return syncScene(op, result) as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD draft ${String(args.target)} ${String(args.angle ?? '')}°`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD draft' }),
+  }) as unknown as ToolDefinition
+
   const cadPattern = defineTool({
     name: 'cad_pattern',
     description:
@@ -1370,6 +1438,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     cadExtrude,
     cadRevolve,
     cadChamfer,
+    cadShell,
+    cadDraft,
     cadPattern,
     cadLoft,
     cadSweep,
@@ -1397,6 +1467,8 @@ export const MODEL_TOOL_NAMES = [
   'cad_extrude_profile',
   'cad_revolve',
   'cad_chamfer',
+  'cad_shell',
+  'cad_draft',
   'cad_pattern',
   'cad_loft',
   'cad_sweep',
