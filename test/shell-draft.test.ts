@@ -42,11 +42,24 @@ describe('shell (抽壳, occt.ts-hosted)', () => {
     expect(v.volume).toBeCloseTo(424, 0)
   })
 
-  it('refuses opencascade.js-only edits on a hosted body with a clear error', async () => {
-    await runModelOp({ kind: 'create_prim', bodyId: 'b', prim: 'box', params: { dx: 10, dy: 10, dz: 10 } })
-    await runModelOp({ kind: 'shell', target: 'b', thickness: 1 })
-    await expect(runModelOp({ kind: 'fillet', target: 'b', radius: 1 })).rejects.toThrow(/hosted on the occt.ts kernel/)
-    await expect(runModelOp({ kind: 'chamfer', target: 'b', distance: 1 })).rejects.toThrow(/hosted on the occt.ts kernel/)
+  it('KEEPS EDITING after shell on the single kernel (the v0.8 seam is gone)', async () => {
+    await runModelOp({ kind: 'create_prim', bodyId: 'b', prim: 'box', params: { dx: 20, dy: 20, dz: 20 } })
+    const shelled = await runModelOp({ kind: 'shell', target: 'b', thickness: 2, openNormals: [[0, 0, 1]] })
+    // 8000 − interior 16×16×18 (open top, inner floor at z=2)
+    expect(shelled.volume).toBeCloseTo(3392, 0)
+    // Fillet and chamfer after shelling — refused with a hosted-body error in
+    // v0.8, native on the single occt.ts kernel. Independent bodies: a fillet
+    // consumes the sharp edges, leaving nothing for a later chamfer.
+    const filleted = await runModelOp({ kind: 'fillet', target: 'b', radius: 0.5 })
+    expect(filleted.bodyId).toBe('b')
+    const v1 = await runModelOp({ kind: 'volume', target: 'b' })
+    expect(v1.volume).toBeLessThan(3392)
+    await runModelOp({ kind: 'create_prim', bodyId: 'c', prim: 'box', params: { dx: 20, dy: 20, dz: 20 } })
+    await runModelOp({ kind: 'shell', target: 'c', thickness: 2, openNormals: [[0, 0, 1]] })
+    const chamfered = await runModelOp({ kind: 'chamfer', target: 'c', distance: 0.3 })
+    expect(chamfered.bodyId).toBe('c')
+    const v2 = await runModelOp({ kind: 'volume', target: 'c' })
+    expect(v2.volume).toBeLessThan(3392)
   })
 
   it('exports a hosted body as valid STEP straight from the hosted bytes', async () => {

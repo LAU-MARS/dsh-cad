@@ -43,7 +43,7 @@ export function CadCard({ block }: CadCardProps): JSX.Element {
         <span style={cardStyles.title}>{meta.title}</span>
         <span style={cardStyles.stats}>{statsLine(meta)}</span>
       </div>
-      <Viewport scene={scene} error={error} height={VIEWPORT_HEIGHT} />
+      <Viewport scene={scene} error={error} height={VIEWPORT_HEIGHT} lazy />
       <div style={cardStyles.footer}>
         {scene === null
           ? (meta.sceneUrl === undefined ? 'headless composition: viewer unavailable, see summary above' : 'loading geometry…')

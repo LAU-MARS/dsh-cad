@@ -8,7 +8,7 @@ import React from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { CadScene, CadViewMeta } from './scene-types.js'
 import { mountViewer3D } from './viewer3d.js'
-import type { RenderMode, Viewer3DHandle } from './viewer3d.js'
+import type { LiveViewer3DHandle, RenderMode } from './viewer3d.js'
 import { entityNodes, fitViewBox } from './viewer2d.js'
 import type { ViewBox } from './viewer2d.js'
 
@@ -137,7 +137,9 @@ export interface SceneState {
   error: string | null
 }
 
-/** Fetch a scene JSON by URL (re-fetches when the URL changes). */
+/** Fetch a scene JSON by URL (re-fetches when the URL changes). The previous
+ *  scene stays visible while re-fetching (stale-while-revalidate) — dropping
+ *  to null would tear down and rebuild the whole viewer. */
 export function useScene(sceneUrl: string | undefined): SceneState {
   const [scene, setScene] = useState<CadScene | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -145,7 +147,6 @@ export function useScene(sceneUrl: string | undefined): SceneState {
   useEffect(() => {
     if (sceneUrl === undefined) return
     let cancelled = false
-    setScene(null)
     setError(null)
     const isBinary = sceneUrl.includes('/dsh-cad/bin/')
     fetch(sceneUrl)
@@ -180,29 +181,77 @@ export interface ViewportSizing {
   fill?: boolean
 }
 
-export function Viewport({ scene, error, height, fill }: SceneState & ViewportSizing): JSX.Element {
+export function Viewport({ scene, error, height, fill, lazy }: SceneState & ViewportSizing & { lazy?: boolean }): JSX.Element {
+  // The last good scene wins over a failed re-fetch: a transient error must
+  // not blank the viewer that is already displaying a model.
+  if (scene !== null) {
+    if (scene.kind === '3d') return <Viewport3D scene={scene} height={height} fill={fill} lazy={lazy} />
+    return <Viewport2D scene={scene} height={height} fill={fill} />
+  }
   if (error !== null) return <div style={styles.error}>{error}</div>
-  if (scene === null) return <div style={styles.placeholder}>loading…</div>
-  if (scene.kind === '3d') return <Viewport3D scene={scene} height={height} fill={fill} />
-  return <Viewport2D scene={scene} height={height} fill={fill} />
+  return <div style={styles.placeholder}>loading…</div>
 }
 
-function Viewport3D({ scene, height, fill }: { scene: Extract<CadScene, { kind: '3d' }> } & ViewportSizing): JSX.Element {
+function Viewport3D({ scene, height, fill, lazy }: { scene: Extract<CadScene, { kind: '3d' }> } & ViewportSizing & { lazy?: boolean }): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const handleRef = useRef<Viewer3DHandle | null>(null)
+  const handleRef = useRef<LiveViewer3DHandle | null>(null)
   const [renderMode, setRenderMode] = useState<RenderMode>('shaded-edges')
+  // Tracks what the handle already displays: the mount effect loads the
+  // initial scene, so the first run of the update effect must not re-apply it.
+  const appliedRef = useRef(scene)
+  // Self-heal generation: a lost WebGL context (browser context budget / GPU
+  // reset) permanently blanks the persistent canvas — bumping this tears the
+  // viewer down and remounts a fresh one. Rate-limited so a page over the
+  // browser's context budget cannot remount in a tight loop.
+  const [generation, setGeneration] = useState(0)
+  const lastHealRef = useRef(0)
+  // Lazy viewers mount only while near the viewport: every viewer holds two
+  // WebGL contexts (canvas + ViewCube) and browsers evict the OLDEST context
+  // past ~16 — with every chat card holding contexts forever, the persistent
+  // side-panel viewer would always be the first victim.
+  const [visible, setVisible] = useState(lazy !== true)
 
   useEffect(() => {
+    if (lazy !== true) return
     const container = containerRef.current
     if (container === null) return
-    const handle = mountViewer3D(container, scene)
+    const observer = new IntersectionObserver((entries) => {
+      setVisible(entries[0]?.isIntersecting ?? true)
+    }, { rootMargin: '200px' })
+    observer.observe(container)
+    return () => {
+      observer.disconnect()
+    }
+  }, [lazy])
+
+  useEffect(() => {
+    if (!visible) return
+    const container = containerRef.current
+    if (container === null) return
+    const handle = mountViewer3D(container, appliedRef.current)
     handleRef.current = handle
     handle.setRenderMode(renderMode)
+    const onContextLost = (): void => {
+      const now = Date.now()
+      if (now - lastHealRef.current < 1000) return
+      lastHealRef.current = now
+      setGeneration((previous) => previous + 1)
+    }
+    handle.domElement.addEventListener('webglcontextlost', onContextLost)
     return () => {
+      handle.domElement.removeEventListener('webglcontextlost', onContextLost)
       handle.dispose()
       handleRef.current = null
     }
-    // scene identity is stable for a viewId.
+    // Mount-once per visibility/generation: later scenes swap geometry in
+    // place through the effect below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, generation])
+
+  useEffect(() => {
+    if (scene === appliedRef.current) return
+    appliedRef.current = scene
+    handleRef.current?.setScene(scene)
   }, [scene])
 
   useEffect(() => {

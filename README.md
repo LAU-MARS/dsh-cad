@@ -29,6 +29,7 @@ switchable demo parts (bracket / flange / shaft):
 
 | Capability | Description |
 | --- | --- |
+| ⚙️ Single-kernel architecture | **occt.ts as the primary modeling kernel** (true B-splines, native shell/draft, centroid); opencascade.js stays only as the fallback backend; the v0.8 "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **shell**, **draft**, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation |
@@ -131,7 +132,7 @@ versioned URL), and the "3D" tab tracks the latest model in real time.
 
 ## Connectors (roadmap)
 
-Modeling today runs on the **built-in WebGL-class kernel** (OCCT in the browser —
+Modeling primarily runs on the **occt.ts kernel** (opencascade.js as the fallback backend) (OCCT in the browser —
 zero install). The connectors below refer to **external CAD engines** acting as
 executors for the same tool family, planned for future support:
 
@@ -192,13 +193,15 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   exponential-map rotation, radians). Solver capability is staged
   (point-distance-to-origin today) — the plumbing contract is finished and needs
   no changes as it grows
-- **Dual-kernel hosted bodies (shell/draft)**: opencascade.js cannot read
-  geometry BACK (STEPControl_Reader / BRepTools readers are opaque no-method
-  shells in that build), so shell/draft run on occt.ts (>= 0.3.0, crossing as
-  STEP bytes) and the result stays HOSTED as STEP bytes on the occt.ts side —
-  volume, .step export and display meshes keep working through occt.ts, while
-  opencascade.js-exclusive edits (fillet/chamfer/loft/sweep/revolve/boolean)
-  on a hosted body are REFUSED with guidance to model first and shell last.
+- **Single-kernel architecture (v0.9)**: the primary modeling kernel is now
+  **occt.ts >= 0.5.0** — primitives, curve-segment profiles (TRUE B-spline
+  interpolation), loft/sweep/revolve, booleans, fillet/chamfer, shell/draft,
+  mirror (composed as scale(-1) + a π rotation) and centroid all live in one
+  session; engineering-drawing HLR takes the shape directly (zero STEP hops);
+  editing after shelling is seamless (the v0.8 hosted-body seam is deleted).
+  opencascade.js remains as the FALLBACK backend (auto-selected when occt.ts
+  cannot load). Assembly STEP export degrades to a fused single solid (no
+  compound binding); instance separation stays in the assembly scene/document.
   Face selection matches `describe()` plane normals (outermost along ±normal)
 - **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
   by the host module table), Z-up CAD convention, empty scene with XYZ axis labels

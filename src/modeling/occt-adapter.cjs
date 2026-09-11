@@ -127,7 +127,7 @@ function createAdapter(occt) {
     if (edges === 0) throw new Error('no edges to fillet')
     algo.Build()
     if (!algo.IsDone()) throw new Error('fillet failed (radius may exceed the adjacent faces)')
-    return { shape: algo.Shape(), edges }
+    return algo.Shape()
   }
 
   function castEdge(shape) {

@@ -54,6 +54,24 @@ function resolveDistDir(explicit) {
   return null
 }
 
+/** Shared wasm-module singleton: the worker's modeling adapter, the HLR path
+ * and the hosted ops all reuse ONE occt.ts instance per process. */
+let sharedModule = null
+
+/** Load (once) and return the shared occt.ts raw module, or null when absent. */
+async function loadSharedOcctModule() {
+  if (sharedModule !== null && sharedModule !== undefined) return sharedModule
+  const distDir = resolveDistDir()
+  if (distDir === null) return null
+  try {
+    sharedModule = await loadModule(distDir)
+  } catch (error) {
+    console.warn(`[dsh-cad] occt.ts kernel failed to load: ${error instanceof Error ? error.message : error}`)
+    sharedModule = null
+  }
+  return sharedModule
+}
+
 async function loadModule(distDir) {
   const imported = await import(pathToFileURL(path.join(distDir, 'wasm', 'occtjs.js')).href)
   const factory = imported.default
@@ -287,13 +305,60 @@ function hostedSolidOp(mod, kind, stepBytes, params) {
 }
 
 /**
+ * Hidden-line views of a shape that ALREADY lives in this occt.ts instance
+ * (the single-kernel path — no STEP hop). Same frame/remap contract as
+ * hiddenLineViews.
+ */
+function hiddenLineViewsOfShape(mod, shape, views) {
+  return {
+    views: views.map((view) => {
+      const w = norm(view.dir)
+      const u = norm(view.xDir)
+      const v = norm(cross(w, u))
+      const dv = dot(w, v)
+      let x = [v[0] - w[0] * dv, v[1] - w[1] * dv, v[2] - w[2] * dv]
+      if (Math.hypot(x[0], x[1], x[2]) < 1e-9) x = Math.abs(w[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]
+      x = norm(x)
+      const y = norm(cross(w, x))
+      const raw = mod.hiddenLines(shape, w[0], w[1], w[2], x[0], x[1], x[2], 0.1)
+      const read = (ptr2, count) => new Float32Array(mod.HEAPU8.buffer, ptr2, count * 3).slice()
+      let visible
+      let hidden
+      try {
+        visible = read(raw.visiblePtr(), raw.visiblePointCount())
+        hidden = read(raw.hiddenPtr(), raw.hiddenPointCount())
+      } finally {
+        raw.delete()
+      }
+      const a = dot(x, u)
+      const b = dot(y, u)
+      const c = dot(x, v)
+      const d = dot(y, v)
+      const remap = (arr) => {
+        const xyz = []
+        for (let i = 0; i + 2 < arr.length; i += 3) xyz.push(arr[i] * a + arr[i + 1] * b, arr[i] * c + arr[i + 1] * d, 0)
+        return xyz
+      }
+      const toPolylines = (xyz) =>
+        chainSegments(
+          Array.from({ length: xyz.length / 6 }, (_, si) => [xyz[si * 6], xyz[si * 6 + 1], xyz[si * 6 + 3], xyz[si * 6 + 4]]),
+        ).map((chain) => simplify(chain, 0.02)).filter((chain) => chain.length >= 4)
+      const visiblePolylines = toPolylines(remap(visible))
+      const visibleKeys = new Set(visiblePolylines.map(polylineKey))
+      const hiddenPolylines = toPolylines(remap(hidden)).filter((chain) => !visibleKeys.has(polylineKey(chain)))
+      return { name: view.name, visible: visiblePolylines, hidden: hiddenPolylines }
+    }),
+  }
+}
+
+/**
  * Create the bridge, or null when the dist is absent/unloadable (the caller
  * falls back to the mesh HLR). The heavy wasm load is lazy and cached.
  */
 async function createOcctBridge(options = {}) {
+  const mod = options.mod ?? await loadSharedOcctModule()
+  if (mod === null) return null
   const distDir = resolveDistDir(options.distDir)
-  if (distDir === null) return null
-  const mod = await loadModule(distDir)
   if (typeof mod.hiddenLines !== 'function' || typeof mod.readStep !== 'function') {
     throw new Error(`occt.ts dist at ${distDir} lacks hiddenLines/readStep`)
   }
@@ -307,6 +372,7 @@ async function createOcctBridge(options = {}) {
     distDir,
     occtVersion: mod.occtVersion(),
     hiddenLineViews: (stepBytes, views) => hiddenLineViews(mod, stepBytes, views),
+    hiddenLineViewsOf: (shape, views) => hiddenLineViewsOfShape(mod, shape, views),
     hostedSolidOp: (kind, stepBytes, params) => hostedSolidOp(mod, kind, stepBytes, params),
     volumeOf: (stepBytes) => {
       const shape = readShape(mod, stepBytes)
@@ -404,4 +470,4 @@ function simplify(points, epsilon) {
   return out
 }
 
-module.exports = { createOcctBridge, resolveDistDir }
+module.exports = { createOcctBridge, resolveDistDir, loadSharedOcctModule }

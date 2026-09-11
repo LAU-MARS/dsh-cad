@@ -31,6 +31,25 @@ export interface Viewer3DHandle {
   dispose(): void
 }
 
+/** A displayable 3D scene: JSON form (base64 attributes) or decoded binary. */
+export type ViewerScene3D = CadScene3D | {
+  kind: '3d'
+  format: string
+  meshes: Array<Record<string, unknown>>
+  bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }
+  units: string
+}
+
+export interface LiveViewer3DHandle extends Viewer3DHandle {
+  /**
+   * Swap the displayed geometry in place: renderer, camera and controls
+   * survive, the user's viewpoint is preserved (depth planes re-fitted).
+   */
+  setScene(scene: ViewerScene3D): void
+  /** The main WebGL canvas — for context-loss monitoring. */
+  readonly domElement: HTMLCanvasElement
+}
+
 export interface CadEditorHandle extends Viewer3DHandle {
   /** Load a different built-in demo BRep part (keeps the current one on failure). */
   loadPart(part: DemoPart): void
@@ -411,7 +430,7 @@ function fitDistance(maxDim: number, aspect: number, fovDegrees: number): number
 }
 
 /** Mount a 3D viewer for real geometry into container; returns the control handle. */
-export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind: '3d'; format: string; meshes: Array<Record<string, unknown>>; bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }; units: string }): Viewer3DHandle {
+export function mountViewer3D(container: HTMLElement, scene: ViewerScene3D): LiveViewer3DHandle {
   // onResize re-frames until the user drives the camera — `interacted` and
   // `placeCamera` are declared below, but the observer only fires after the
   // synchronous mount body finished.
@@ -422,40 +441,43 @@ export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind
   })
   const threeScene = new THREE.Scene()
 
-  const cad = new THREE.Group()
+  // cadRoot is stable across scene swaps: picking and render-mode helpers hold
+  // this reference, so replaced children are always the live set.
+  const cadRoot = new THREE.Group()
+  threeScene.add(cadRoot)
+  let cad = new THREE.Group()
   for (const mesh of scene.meshes) cad.add(buildMesh(mesh))
+  cadRoot.add(cad)
 
-  const bounds = scene.bounds
-  const size = new THREE.Vector3(
+  let bounds = scene.bounds
+  let size = new THREE.Vector3(
     bounds.max.x - bounds.min.x,
     bounds.max.y - bounds.min.y,
     bounds.max.z - bounds.min.z,
   )
-  const center = new THREE.Vector3(
+  let center = new THREE.Vector3(
     (bounds.max.x + bounds.min.x) / 2,
     (bounds.max.y + bounds.min.y) / 2,
     (bounds.max.z + bounds.min.z) / 2,
   )
-  const maxDim = Math.max(size.x, size.y, size.z, 1e-6)
-
-  threeScene.add(cad)
+  let maxDim = Math.max(size.x, size.y, size.z, 1e-6)
 
   const hemisphere = new THREE.HemisphereLight(0xffffff, 0x595f6b, 1.1)
   threeScene.add(hemisphere)
   const key = new THREE.DirectionalLight(0xffffff, 1.6)
-  key.position.set(center.x + maxDim, center.y + maxDim * 1.4, center.z + maxDim * 0.8)
   threeScene.add(key)
   const fill = new THREE.DirectionalLight(0xffffff, 0.5)
-  fill.position.set(center.x - maxDim, center.y + maxDim * 0.4, center.z - maxDim * 0.6)
   threeScene.add(fill)
+  const placeLights = (): void => {
+    key.position.set(center.x + maxDim, center.y + maxDim * 1.4, center.z + maxDim * 0.8)
+    fill.position.set(center.x - maxDim, center.y + maxDim * 0.4, center.z - maxDim * 0.6)
+  }
 
-  // Ground grid on the model's XY plane plus the labeled triad at the origin.
-  const furniture = addSceneFurniture(threeScene, maxDim)
-  const grid = furniture[1] as THREE.GridHelper
-  grid.position.set(center.x, center.y, bounds.min.z)
+  // Ground grid on the model's XY plane plus the labeled triad at the origin;
+  // rebuilt on every swap because the grid/labels scale with the model.
+  let furniture: THREE.Object3D[] = []
 
-  shell.camera.near = maxDim / 100
-  shell.camera.far = maxDim * 40
+  let mode: RenderMode = 'shaded-edges'
 
   const placeCamera = (): void => {
     const distance = fitDistance(maxDim, shell.camera.aspect, shell.camera.fov)
@@ -467,7 +489,34 @@ export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind
     shell.controls.target.copy(center)
     shell.controls.update()
   }
-  placeCamera()
+
+  /** Refresh everything derived from the model's frame (grid, lights, depth
+   *  planes, render mode); `reframe` also resets the camera, otherwise the
+   *  user's viewpoint is preserved. */
+  const applyFrame = (reframe: boolean): void => {
+    if (furniture.length > 0) {
+      disposeObjects(furniture)
+      threeScene.remove(furniture[0])
+    }
+    furniture = addSceneFurniture(threeScene, maxDim)
+    const grid = furniture[1] as THREE.GridHelper
+    grid.position.set(center.x, center.y, bounds.min.z)
+    placeLights()
+    if (reframe) {
+      shell.camera.near = maxDim / 100
+      shell.camera.far = maxDim * 40
+      placeCamera()
+    } else {
+      // Keep the viewpoint: only widen the depth planes so the new geometry
+      // never falls in front of near / behind far at the current distance.
+      const distance = shell.camera.position.distanceTo(shell.controls.target)
+      shell.camera.near = Math.min(maxDim / 100, distance / 1000)
+      shell.camera.far = Math.max(maxDim * 40, distance * 4)
+    }
+    shell.camera.updateProjectionMatrix()
+    applyRenderMode(cadRoot, mode)
+  }
+  applyFrame(true)
 
   // Re-fit while the layout settles; once the user orbits/zooms themselves,
   // resizes never re-frame.
@@ -479,10 +528,32 @@ export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind
   shell.renderer.domElement.addEventListener('wheel', markInteracted, { passive: true })
 
   const viewCube = new ViewCube({ container, camera: shell.camera, controls: shell.controls, onHome: placeCamera })
+  const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad: cadRoot })
 
-  const defaultMode: RenderMode = 'shaded-edges'
-  applyRenderMode(cad, defaultMode)
-  const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad })
+  let disposed = false
+  /** Swap the displayed geometry in place (see LiveViewer3DHandle.setScene). */
+  const setScene = (next: ViewerScene3D): void => {
+    if (disposed) return
+    cadRoot.remove(cad)
+    disposeObjects([cad])
+    picking.invalidate()
+    cad = new THREE.Group()
+    for (const mesh of next.meshes) cad.add(buildMesh(mesh))
+    cadRoot.add(cad)
+    bounds = next.bounds
+    size = new THREE.Vector3(
+      bounds.max.x - bounds.min.x,
+      bounds.max.y - bounds.min.y,
+      bounds.max.z - bounds.min.z,
+    )
+    center = new THREE.Vector3(
+      (bounds.max.x + bounds.min.x) / 2,
+      (bounds.max.y + bounds.min.y) / 2,
+      (bounds.max.z + bounds.min.z) / 2,
+    )
+    maxDim = Math.max(size.x, size.y, size.z, 1e-6)
+    applyFrame(false)
+  }
 
   const frame = (): void => {
     animationId = requestAnimationFrame(frame)
@@ -497,10 +568,21 @@ export function mountViewer3D(container: HTMLElement, scene: CadScene3D | { kind
       this.setRenderMode(enabled ? 'wireframe' : 'shaded-edges')
     },
     setRenderMode(next: RenderMode): void {
-      applyRenderMode(cad, next)
+      mode = next
+      applyRenderMode(cadRoot, next)
     },
-    resetView: placeCamera,
+    setScene,
+    resetView(): void {
+      shell.camera.near = maxDim / 100
+      shell.camera.far = maxDim * 40
+      shell.camera.updateProjectionMatrix()
+      placeCamera()
+    },
+    get domElement(): HTMLCanvasElement {
+      return shell.renderer.domElement
+    },
     dispose(): void {
+      disposed = true
       cancelAnimationFrame(animationId)
       picking.dispose()
       viewCube.dispose()

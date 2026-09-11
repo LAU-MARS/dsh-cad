@@ -417,7 +417,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     name: 'cad_create_prim',
     description:
       'Create a parametric primitive in the shared modeling document (mm, Z-up). Kinds: box (dx,dy,dz), cylinder (radius,height), sphere (radius), cone (radius1,radius2,height), torus (majorRadius,minorRadius). ' +
-      '`at` places the origin; `axis` orients cylinder/cone/torus (default +Z). Returns the bodyId other CAD tools reference. The viewer card updates after every call.',
+      '`at` is the anchor point with per-kind semantics: box → min corner (the solid spans at .. at+[dx,dy,dz] along +X/+Y/+Z); cylinder/cone → base-circle center (the solid extends `height` from it along `axis`); sphere/torus → geometric center. ' +
+      '`axis` orients cylinder/cone/torus (default +Z). Returns the bodyId other CAD tools reference. The viewer card updates after every call.',
     parameters: {
       kind: { type: 'string', required: true, enum: ['box', 'cylinder', 'sphere', 'cone', 'torus'] as const, description: 'Primitive kind.' },
       dx: numberParam('box: size X (mm).'),
@@ -429,7 +430,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       height: numberParam('cylinder/cone: height (mm).'),
       majorRadius: numberParam('torus: center radius (mm).'),
       minorRadius: numberParam('torus: tube radius (mm).'),
-      at: pointParam('origin [x,y,z] (mm).'),
+      at: pointParam('anchor [x,y,z] (mm): box = min corner, cylinder/cone = base-circle center, sphere/torus = geometric center.'),
       axis: pointParam('axis direction [x,y,z] for cylinder/cone/torus.'),
       name: { type: 'string', description: 'Optional display name.' },
     },

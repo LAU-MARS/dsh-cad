@@ -733,7 +733,7 @@ function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   }
   if (meta === null) return <EmptyPartStudio />
   return (
-    <div key={meta.sceneUrl ?? meta.viewId} style={panelStyles.sceneFill}>
+    <div style={panelStyles.sceneFill}>
       <Viewport scene={live.scene} error={live.error} fill />
     </div>
   )
@@ -752,7 +752,7 @@ function AssemblyTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
     )
   }
   return (
-    <div key={meta.sceneUrl ?? meta.viewId} style={panelStyles.sceneFill}>
+    <div style={panelStyles.sceneFill}>
       <Viewport scene={scene} error={error} fill />
     </div>
   )
@@ -771,7 +771,7 @@ function DrawingTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
     )
   }
   return (
-    <div key={meta.sceneUrl ?? meta.viewId} style={{ ...panelStyles.sceneFill, background: '#fff' }}>
+    <div style={{ ...panelStyles.sceneFill, background: '#fff' }}>
       <Viewport scene={scene} error={error} fill />
     </div>
   )

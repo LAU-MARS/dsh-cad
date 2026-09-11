@@ -14,3 +14,5 @@ docs/marketing/
 /*.dxf
 /*.svg
 __pycache__/
+test/visual/swap-check.js
+test/visual/ctx-stress.js
