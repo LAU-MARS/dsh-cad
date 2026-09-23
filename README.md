@@ -44,6 +44,7 @@ switchable demo parts (bracket / flange / shaft):
 | 💾 Modeling document persistence | Operation log (JSON) + debounced disk mirror; automatically replayed to restore state after a process restart |
 | 🖼️ Image → profile | PNG sketch/screenshot → Otsu binarization → contour tracing → extrusion-ready polygon (`cad_image_profile`) |
 | 🔌 FreeCAD executor | Run the same op family on an external FreeCAD console (STEP in/out); requires a local FreeCAD install |
+| ☁️ Onshape executor | Run the same op family on **Onshape** over its signed REST API — zero local install; every op compiles to a **standard Onshape feature** pushed into the target Part Studio (no Feature Studio setup). Readback is three-tier: cheap per-part STL by default, `readback: "step"` for exact-BRep-derived named meshes via a server-side STEP translation, or `readback: "none"` — build only and return the document link (~3 calls, quota-friendliest). Exports `.stl` / `.step` / `.x_t` (Parasolid). Quota-aware errors distinguish credential problems from free-plan cooldowns; the Onshape document URL is always surfaced |
 
 ## Installation
 
@@ -125,6 +126,7 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_doc_delete` | Permanently delete a document (requires `confirm: true`) |
 | `cad_freecad` | Run an op program on an external FreeCAD executor (optional STEP input / export) |
 | `cad_fusion` | Run an op program on an external Fusion 360 executor (GUI bridge; optional export) |
+| `cad_onshape` | Run an op program on the Onshape cloud (signed REST API): creates or drives a document, returns its URL; `readback: "step"` for exact BRep meshes; exports `.stl` / `.step` / `.x_t` (Parasolid) |
 | `cad_image_profile` | PNG → contours → extrusion-ready polygon points |
 
 After every modeling step: **the same viewer card refreshes in place** (stable viewId +
@@ -142,7 +144,7 @@ executors for the same tool family, planned for future support:
 | FreeCAD | open-source parametric suite — natural local executor via its Python API (console + GUI window modes) | Windows / macOS / Linux | ✅ Available (needs local install) |
 | Fusion 360 | Autodesk CAD/CAM — resident add-in + spool bridge (no headless; the Fusion window doubles as a viewer) | Windows / macOS | 🧪 Experimental (`cad_fusion`) |
 | SolidWorks | Dassault Systèmes industry-standard 3D CAD, COM/.NET automation | Windows only | 🚧 Windows demo scaffold (`scripts/solidworks-bridge/`) |
-| Onshape | cloud-native SaaS CAD, fully in the browser | All platforms (browser) | 🚧 Planned |
+| Onshape | PTC cloud-native SaaS CAD, fully in the browser — signed REST API (cad.onshape.com or chamber hosts); every op compiles to a standard Onshape feature pushed into the Part Studio, results read back as per-part STL + mass properties, the cloud is the viewer | All platforms (browser) | ✅ Available (`cad_onshape`; set `DSH_ONSHAPE_ACCESS_KEY` / `DSH_ONSHAPE_SECRET_KEY`) |
 | ZW3D（中望3D） | ZWSOFT all-in-one CAD/CAM | Windows / Linux | 🚧 Planned |
 | GstarCAD 3D（浩辰3D） | Gstarsoft 3D CAD | Windows | 🚧 Planned |
 
@@ -236,6 +238,14 @@ OCCT worker → exact bounds).
   view is provided as the "3D" view tab (a list slot, the official composition)
 - The host reads CAD files via node:fs (the platform fs service supports UTF-8 text
   only and cannot carry binary data)
+
+## Community
+
+| QQ Group (🇨🇳 China) | Feishu (🇨🇳 China) | X / Twitter (🌍 International) | Discord (🌍 International) |
+| --- | --- | --- | --- |
+| `485038246` (join note: dsh-cad) | 🚧 Coming soon | 🚧 Coming soon | 🚧 Coming soon |
+
+<!-- TODO: fill in the X handle / Discord invite link before publishing -->
 
 ## Contributors
 

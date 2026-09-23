@@ -40,12 +40,27 @@ export interface GeometryProgram {
   export?: ExecutorExport
   /** Keep the result on screen in the engine's own window, when supported. */
   display?: boolean
+  /** Cloud executors: drive an existing document/element instead of a new one. */
+  target?: {
+    documentId?: string
+    workspaceId?: string
+    elementId?: string
+    documentName?: string
+  }
+  /** Cloud readback flavor: 'stl' (default, cheapest) or 'step' (server-side
+   *  translation parsed locally into exact-BRep-derived meshes), or 'none'
+   *  (build only, return the document link — the cheapest possible run). */
+  readback?: 'stl' | 'step' | 'none'
 }
 
 export interface GeometryResult {
   meshes: ExecutorMesh[]
   volumes: Record<string, number>
   exported?: string
+  /** Cloud executors (Onshape) link the holding document. */
+  documentUrl?: string
+  documentId?: string
+  documentName?: string
 }
 
 export interface RunOptions {
@@ -124,12 +139,14 @@ export function isKnownOpKind(kind: unknown): boolean {
 /** Registry of the executors compiled into this build (display order). */
 import { FREECAD_EXECUTOR } from './freecad-executor.js'
 import { FUSION360_EXECUTOR } from './fusion360-executor.js'
+import { ONSHAPE_EXECUTOR } from './onshape-executor.js'
 import { BUILTIN_EXECUTOR } from './builtin-executor.js'
 
 export const EXECUTORS: readonly GeometryExecutor[] = [
   BUILTIN_EXECUTOR,
   FREECAD_EXECUTOR,
   FUSION360_EXECUTOR,
+  ONSHAPE_EXECUTOR,
 ]
 
 export function executorById(id: string): GeometryExecutor | undefined {

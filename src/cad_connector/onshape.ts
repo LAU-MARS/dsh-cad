@@ -1,4 +1,4 @@
-/** Onshape — planned external executor, cloud-native. */
+/** Onshape — cloud-native external executor over the public REST API. */
 import type { CadConnector } from './types.js'
 
 export const ONSHAPE_CONNECTOR: CadConnector = {
@@ -6,6 +6,6 @@ export const ONSHAPE_CONNECTOR: CadConnector = {
   label: 'Onshape',
   vendor: 'PTC',
   language: 'rest',
-  status: 'planned',
-  binding: 'REST API for documents/geometry; FeatureScript for custom features',
+  status: 'available',
+  binding: 'Signed REST API (v6): op programs compile to a FeatureScript custom feature pushed into a Part Studio; results read back as per-part STL + mass properties',
 }

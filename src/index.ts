@@ -18,6 +18,7 @@ import { createCadInfoTool } from './tools/cad-info.js'
 import { createModelTools } from './tools/cad-model.js'
 import { createFreeCadTool } from './tools/cad-freecad.js'
 import { createFusionTool } from './tools/cad-fusion.js'
+import { createOnshapeTool } from './tools/cad-onshape.js'
 import { createCadImageTool } from './tools/cad-image.js'
 
 export const name = 'dsh-cad'
@@ -82,6 +83,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const modelTools = createModelTools({ store: binStore, sceneStore: store, workspaceRoot, ensureSceneRoute, registry })
   const cadFreeCad = createFreeCadTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadFusion = createFusionTool({ store: binStore, workspaceRoot, ensureSceneRoute })
+  const cadOnshape = createOnshapeTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadImage = createCadImageTool({ store, workspaceRoot, ensureSceneRoute })
 
   const disposers = [
@@ -90,6 +92,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     ...modelTools.map((tool) => ctx.tools.register(tool)),
     ctx.tools.register(cadFreeCad),
     ctx.tools.register(cadFusion),
+    ctx.tools.register(cadOnshape),
     ctx.tools.register(cadImage),
   ]
 

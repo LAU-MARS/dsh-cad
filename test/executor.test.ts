@@ -34,10 +34,11 @@ describe('normalizeOps (shared across executors)', () => {
 })
 
 describe('executor registry', () => {
-  it('ships builtin, freecad and fusion360 over the one contract', () => {
-    expect(EXECUTORS.map((executor) => executor.id)).toEqual(['builtin', 'freecad', 'fusion360'])
+  it('ships builtin, freecad, fusion360 and onshape over the one contract', () => {
+    expect(EXECUTORS.map((executor) => executor.id)).toEqual(['builtin', 'freecad', 'fusion360', 'onshape'])
     expect(executorById('builtin')?.available()).toBe(true)
     expect(typeof executorById('freecad')?.available()).toBe('boolean')
+    expect(typeof executorById('onshape')?.available()).toBe('boolean')
   })
 
   it('builtin runs a one-shot program on an isolated worker', async () => {

@@ -42,6 +42,7 @@
 | 💾 建模文档持久化 | 操作日志（JSON）+ 防抖磁盘镜像，进程重启后自动重放恢复 |
 | 🖼️ 图片 → 轮廓 | PNG 草图/截图 → Otsu 二值化 → 轮廓追踪 → 可直接拉伸的多边形（`cad_image_profile`） |
 | 🔌 FreeCAD 执行器 | 在外部 FreeCAD 控制台运行同一 op 族（STEP 输入/输出闭环）；需本地安装 |
+| ☁️ Onshape 执行器 | 经**签名 REST API** 在 **Onshape** 云端运行同一 op 族——零本地安装：每个 op 编译为一个**标准 Onshape 特征**推入目标 Part Studio（无需 Feature Studio 配置）。回传分三级：默认按零件的廉价 STL、`readback: "step"` 精确 BRep 命名网格（服务端 STEP 翻译 + 本地 OCCT 解析）、`readback: "none"` 只建模型回文档链接（约 3 次调用，最省配额）。导出支持 `.stl` / `.step` / `.x_t`（Parasolid 原生内核 BRep）。配额感知错误区分密钥问题与免费档冷却；始终返回 Onshape 文档链接 |
 
 ## 安装
 
@@ -121,6 +122,7 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | `cad_doc_delete` | 永久删除文档（需 `confirm: true`） |
 | `cad_freecad` | 在外部 FreeCAD 执行器上运行 op 程序（可选 STEP 输入/导出） |
 | `cad_fusion` | 在外部 Fusion 360 执行器上运行 op 程序（GUI 桥；可选导出） |
+| `cad_onshape` | 在 Onshape 云端运行 op 程序（签名 REST API）：新建或驱动文档、返回文档链接；`readback: "step"` 回传精确 BRep 网格；导出 `.stl` / `.step` / `.x_t`（Parasolid） |
 | `cad_image_profile` | PNG → 轮廓 → 可直接拉伸的多边形点集 |
 
 每步建模后：**同一查看器卡片原地刷新**（稳定 viewId + 版本化 URL），
@@ -137,7 +139,7 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | FreeCAD | 开源参数化套件——可经其 Python API 作为本地执行器（控制台 + GUI 窗口双模式） | Windows / macOS / Linux | ✅ 可用（需本地安装） |
 | Fusion 360 | Autodesk CAD/CAM——常驻 Add-In + spool 桥（无 headless，Fusion 窗口即查看器） | Windows / macOS | 🧪 实验性（`cad_fusion`） |
 | SolidWorks | 达索系统的主流 3D CAD，COM/.NET 自动化 | 仅 Windows | 🚧 Windows demo 脚手架（`scripts/solidworks-bridge/`） |
-| Onshape | 云原生 SaaS CAD，完全在浏览器中 | 全平台（浏览器） | 🚧 规划中 |
+| Onshape | PTC 云原生 SaaS CAD，完全在浏览器——签名 REST API（cad.onshape.com 或私有 chamber 域名）；每个 op 编译为标准 Onshape 特征推入 Part Studio，结果按零件回传 STL + 质量属性，云端即查看器 | 全平台（浏览器） | ✅ 可用（`cad_onshape`；设置 `DSH_ONSHAPE_ACCESS_KEY` / `DSH_ONSHAPE_SECRET_KEY`） |
 | 中望3D（ZW3D） | 中望软件的一体化 CAD/CAM | Windows / Linux | 🚧 规划中 |
 | 浩辰3D | 浩辰软件的 3D CAD | Windows | 🚧 规划中 |
 
@@ -210,6 +212,14 @@ STL 导出往返（导出 → 一期解析器读回），以及 DCPRT 文档往�
 - dsh 框架限制：已挂载的 single 槽（右侧 details 面板本体）不响应后注册组件，
   故常驻显示区以 "3D" 视图页签提供（list 槽，官方组合方式）
 - 宿主读取 CAD 文件使用 node:fs（平台 fs 服务仅支持 UTF-8 文本，无法承载二进制）
+
+## 社区
+
+| QQ 群（🇨🇳 国内） | 飞书群（🇨🇳 国内） | X / Twitter（🌍 国际） | Discord（🌍 国际） |
+| --- | --- | --- | --- |
+| `485038246`（加群备注 dsh-cad） | 🚧 敬请期待 | 🚧 敬请期待 | 🚧 敬请期待 |
+
+<!-- TODO: 发布前填入 X 账号 / Discord 邀请链接 -->
 
 ## 贡献者
 
