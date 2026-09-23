@@ -17,11 +17,13 @@
 
 ## 预览
 
-启动即见的 CAD 编辑器：示例 L 型支架由内置的 `demo-bracket.brep` 经 OCCT
-解析渲染——面 + 边显示模式、悬停即测（拾取面 4,800 mm²）、角落 ViewCube
-导航块、支架 / 法兰 / 轴三种示例件一键切换：
+一次完整的建模会话：在对话中直接搭参数化装配体——先建 120×80×8、四角 R5
+圆角的底板，再在四角放置 4 个螺栓实例——右侧常驻 CAD 面板全程实时跟踪
+（带逐实例配色的零件树、ViewCube、"装配体"页签、5 实例 · 1,740 三角形）。
+完成后导出结构化 STEP 文档，agent 回读文件自检——2 个实体、3 个产品、
+2 个装配引用、1,125.00 mm³：
 
-![dsh-cad CAD 编辑器](docs/img/bracket-preview.png)
+![dsh-cad 装配建模会话](docs/img/assembly-preview.png)
 
 ## 功能总览
 
@@ -184,8 +186,10 @@ cad_view(path)                        建模工具（cad_create_prim 等）
   （真 BSpline 插值）/放样/扫掠/旋转/布尔/圆角/倒角/抽壳/拔模/镜像（scale(-1)+
   旋转 π 组合）/质心全在一个会话内，工程图 HLR 直接吃 shape（零 STEP 中转），
   抽壳后继续编辑无缝（v0.8 的托管接缝删除）。opencascade.js 保留为**降级后端**
-  （occt.ts 加载失败时自动启用）。装配体 STEP 导出因无 compound 绑定降级为
-  fuse 单体（实例分离保留在装配场景/文档中）。面选择按 `describe()` 平面法向
+  （occt.ts 加载失败时自动启用）。装配体 STEP 导出为**结构化文档**（occt.ts
+  ≥ 0.7.0 `writeStepDocument`）：一个根产品 + 每实例一个命名、带位姿的子产品——
+  实例分离在文件中保留（STL 仍为单一熔合网格；降级后端同样走 fuse）。fuse
+  路径下实例分离仅保留在装配场景/文档中。面选择按 `describe()` 平面法向
   匹配（±法向取外侧投影最大者）
 - **客户端**：esbuild 单文件 CJS 工厂（three.js 内联 ~560KB，react 由宿主模块表提供），
   Z-up CAD 惯例，带 XYZ 轴标签与地面网格的空场景常驻显示

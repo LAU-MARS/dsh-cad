@@ -46,6 +46,16 @@ export interface LiveViewer3DHandle extends Viewer3DHandle {
    * survive, the user's viewpoint is preserved (depth planes re-fitted).
    */
   setScene(scene: ViewerScene3D): void
+  /**
+   * Emissive-highlight the mesh with this name (the assembly tree's part
+   * selection); null clears. Survives scene swaps — re-applied to new meshes.
+   */
+  highlightMesh(name: string | null): void
+  /**
+   * Hide/show top-level meshes by name (the assembly tree's eye toggles).
+   * Survives scene swaps — re-applied to new meshes.
+   */
+  setHiddenMeshes(names: Iterable<string>): void
   /** The main WebGL canvas — for context-loss monitoring. */
   readonly domElement: HTMLCanvasElement
 }
@@ -249,7 +259,11 @@ function buildMesh(mesh: CadMesh | { name: string; color?: number; positions: Fl
     flatShading: (mesh as { normals?: unknown }).normals === undefined,
     side: THREE.DoubleSide,
   })
-  return new THREE.Mesh(geometry, material)
+  const built = new THREE.Mesh(geometry, material)
+  // Named after the source mesh (body / assembly instance) — picking labels
+  // and the assembly-tree highlight both match on it.
+  built.name = (mesh as { name?: string }).name ?? ''
+  return built
 }
 
 /**
@@ -531,6 +545,49 @@ export function mountViewer3D(container: HTMLElement, scene: ViewerScene3D): Liv
   const picking = new PickingController({ domElement: shell.renderer.domElement, camera: shell.camera, cad: cadRoot })
 
   let disposed = false
+  /** Assembly-tree selection: the mesh name carrying the emissive highlight. */
+  let highlighted: string | null = null
+  /** Assembly-tree eye toggles: names of the meshes not drawn. */
+  const hiddenMeshes = new Set<string>()
+
+  /** (Re)apply visibility to the current top-level meshes (their edge/picking
+   *  children follow the parent's visibility automatically). */
+  const applyHidden = (): void => {
+    for (const child of cad.children) {
+      child.visible = !hiddenMeshes.has(child.name)
+    }
+  }
+
+  const setHiddenMeshes = (names: Iterable<string>): void => {
+    hiddenMeshes.clear()
+    for (const name of names) hiddenMeshes.add(name)
+    applyHidden()
+  }
+
+  /** (Re)apply the emissive highlight to the current meshes. */
+  const applyHighlight = (): void => {
+    cadRoot.traverse((child) => {
+      const mesh = child as THREE.Mesh
+      if (!mesh.isMesh) return
+      const material = mesh.material as THREE.Material
+      // Picking overlays use MeshBasicMaterial — only standard materials glow.
+      if (!('emissive' in material)) return
+      const standard = material as THREE.MeshStandardMaterial
+      if (highlighted !== null && mesh.name === highlighted) {
+        standard.emissive.setHex(0x4d6bfe)
+        standard.emissiveIntensity = 0.45
+      } else if (standard.emissive.getHex() !== 0) {
+        standard.emissive.setHex(0x000000)
+        standard.emissiveIntensity = 1
+      }
+    })
+  }
+
+  const highlightMesh = (name: string | null): void => {
+    highlighted = name
+    applyHighlight()
+  }
+
   /** Swap the displayed geometry in place (see LiveViewer3DHandle.setScene). */
   const setScene = (next: ViewerScene3D): void => {
     if (disposed) return
@@ -553,6 +610,8 @@ export function mountViewer3D(container: HTMLElement, scene: ViewerScene3D): Liv
     )
     maxDim = Math.max(size.x, size.y, size.z, 1e-6)
     applyFrame(false)
+    applyHighlight()
+    applyHidden()
   }
 
   const frame = (): void => {
@@ -572,6 +631,8 @@ export function mountViewer3D(container: HTMLElement, scene: ViewerScene3D): Liv
       applyRenderMode(cadRoot, next)
     },
     setScene,
+    highlightMesh,
+    setHiddenMeshes,
     resetView(): void {
       shell.camera.near = maxDim / 100
       shell.camera.far = maxDim * 40

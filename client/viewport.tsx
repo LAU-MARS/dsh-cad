@@ -179,20 +179,24 @@ export function useScene(sceneUrl: string | undefined): SceneState {
 export interface ViewportSizing {
   height?: number | string
   fill?: boolean
+  /** Mesh name to emissive-highlight (assembly tree selection). */
+  highlight?: string | null
+  /** Mesh names not drawn (assembly tree eye toggles). */
+  hidden?: readonly string[]
 }
 
-export function Viewport({ scene, error, height, fill, lazy }: SceneState & ViewportSizing & { lazy?: boolean }): JSX.Element {
+export function Viewport({ scene, error, height, fill, lazy, highlight, hidden }: SceneState & ViewportSizing & { lazy?: boolean }): JSX.Element {
   // The last good scene wins over a failed re-fetch: a transient error must
   // not blank the viewer that is already displaying a model.
   if (scene !== null) {
-    if (scene.kind === '3d') return <Viewport3D scene={scene} height={height} fill={fill} lazy={lazy} />
+    if (scene.kind === '3d') return <Viewport3D scene={scene} height={height} fill={fill} lazy={lazy} highlight={highlight} hidden={hidden} />
     return <Viewport2D scene={scene} height={height} fill={fill} />
   }
   if (error !== null) return <div style={styles.error}>{error}</div>
   return <div style={styles.placeholder}>loading…</div>
 }
 
-function Viewport3D({ scene, height, fill, lazy }: { scene: Extract<CadScene, { kind: '3d' }> } & ViewportSizing & { lazy?: boolean }): JSX.Element {
+function Viewport3D({ scene, height, fill, lazy, highlight, hidden }: { scene: Extract<CadScene, { kind: '3d' }> } & ViewportSizing & { lazy?: boolean }): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const handleRef = useRef<LiveViewer3DHandle | null>(null)
   const [renderMode, setRenderMode] = useState<RenderMode>('shaded-edges')
@@ -257,6 +261,14 @@ function Viewport3D({ scene, height, fill, lazy }: { scene: Extract<CadScene, { 
   useEffect(() => {
     handleRef.current?.setRenderMode(renderMode)
   }, [renderMode])
+
+  useEffect(() => {
+    handleRef.current?.highlightMesh(highlight ?? null)
+  }, [highlight])
+
+  useEffect(() => {
+    handleRef.current?.setHiddenMeshes(hidden ?? [])
+  }, [hidden])
 
   const cycleRenderMode = useCallback(() => {
     setRenderMode((previous) => RENDER_MODES[(RENDER_MODES.indexOf(previous) + 1) % RENDER_MODES.length])

@@ -64,9 +64,15 @@ describe('modeling worker: drawing + assembly (integration)', () => {
 
     const step = await runModelOp({ kind: 'export_assembly', format: 'step' })
     expect(step.bytes!.byteLength).toBeGreaterThan(200)
-    // STEP text contains multiple products (assembly, not a single solid)
+    // Structured assembly document (occt.ts writeStepDocument): the two
+    // instances stay separate named products linked by assembly usages —
+    // not one fused solid.
     const text = new TextDecoder().decode(new Uint8Array(step.bytes!))
-    expect(text).toContain('MANIFOLD_SOLID_BREP')
+    expect((text.match(/MANIFOLD_SOLID_BREP/g) ?? []).length).toBe(2)
+    expect((text.match(/NEXT_ASSEMBLY_USAGE_OCCURRENCE/g) ?? []).length).toBe(2)
+    expect(text).toContain('pin')
+    expect(text).toContain('80.') // the a2 instance placement translate
+    expect(text).not.toContain('NAN')
 
     const removed = await runModelOp({ kind: 'assembly_remove', instanceId: 'a1' })
     expect(removed.instances).toHaveLength(1)

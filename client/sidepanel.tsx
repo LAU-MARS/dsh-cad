@@ -19,6 +19,7 @@ import type { CadViewMeta } from './scene-types.js'
 import { mountCadEditor3D } from './viewer3d.js'
 import { readKind, readLatest, subscribeLatest, useScene, Viewport } from './viewport.js'
 import type { DocKind } from './viewport.js'
+import { AssemblyTree, useAssemblyTree } from './assembly-tree.js'
 
 // ── harness services (structural, defensive) ────────────────────────────────
 
@@ -739,9 +740,33 @@ function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   )
 }
 
-/** 装配体: composed instance scene, or an empty state with a chat hint. */
+/** 装配体: the composed, per-instance colored scene with the assembly tree
+ *  (PARTS + CONSTRAINTS) floating over it. Clicking a part row highlights its
+ *  solid; the row's eye toggles its visibility. */
 function AssemblyTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   const { scene, error } = useScene(meta?.sceneUrl)
+  // The assembly viewId is `asm-<docId>`; the scene URL's ?v= is the document
+  // version, so the tree refetches exactly when the assembly changes.
+  const docId = meta !== null && meta.viewId.startsWith('asm-') ? meta.viewId.slice(4) : null
+  const version = useMemo(() => {
+    const match = /[?&]v=(\d+)/.exec(meta?.sceneUrl ?? '')
+    return match === null ? 0 : Number(match[1])
+  }, [meta?.sceneUrl])
+  const { tree } = useAssemblyTree(docId, version)
+  const [treeOpen, setTreeOpen] = useState(true)
+  /** The highlighted part's mesh name (tree ↔ viewport selection). */
+  const [selected, setSelected] = useState<string | null>(null)
+  /** Part names hidden via the tree's eye toggles. */
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
+  const hiddenList = useMemo(() => [...hidden], [hidden])
+
+  // Drop the selection/visibility when switching documents — names belong to
+  // one document.
+  useEffect(() => {
+    setSelected(null)
+    setHidden(new Set())
+  }, [docId])
+
   if (meta === null) {
     return (
       <EmptyTabState
@@ -752,8 +777,39 @@ function AssemblyTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
     )
   }
   return (
-    <div style={panelStyles.sceneFill}>
-      <Viewport scene={scene} error={error} fill />
+    <div style={panelStyles.assemblyStage}>
+      <div style={panelStyles.sceneFill}>
+        <Viewport scene={scene} error={error} fill highlight={selected} hidden={hiddenList} />
+      </div>
+      {treeOpen ? (
+        <div style={panelStyles.treeFloat}>
+          <AssemblyTree
+            tree={tree}
+            selected={selected}
+            onSelect={setSelected}
+            hidden={hidden}
+            onToggleHidden={(part) => {
+              setHidden((previous) => {
+                const next = new Set(previous)
+                if (next.has(part.name)) next.delete(part.name)
+                else next.add(part.name)
+                return next
+              })
+            }}
+            onCollapse={() => { setTreeOpen(false) }}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          style={panelStyles.treeRail}
+          onClick={() => { setTreeOpen(true) }}
+          aria-label="展开装配树"
+          title="展开装配树"
+        >
+          ›
+        </button>
+      )}
     </div>
   )
 }
@@ -1156,6 +1212,41 @@ const panelStyles: Record<string, React.CSSProperties> = {
     minHeight: 0,
     display: 'flex',
     flexDirection: 'column',
+  },
+  assemblyStage: {
+    flex: '1 1 auto',
+    minHeight: 0,
+    position: 'relative',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  // The assembly tree floats over the viewport's top-left corner (rounded
+  // card, shadow) — it never displaces the 3D area.
+  treeFloat: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 6,
+    maxHeight: 'calc(100% - 16px)',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  treeRail: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    zIndex: 6,
+    width: 22,
+    height: 22,
+    border: '1px solid var(--dsw-alias-border-l1, #e2e5ea)',
+    borderRadius: 7,
+    background: 'var(--dsw-alias-bg-base, #fff)',
+    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
+    fontSize: 13,
+    lineHeight: '18px',
+    cursor: 'pointer',
+    padding: 0,
+    boxShadow: '0 4px 12px -6px rgba(16,24,40,0.25)',
   },
   emptyState: {
     flex: '1 1 auto',

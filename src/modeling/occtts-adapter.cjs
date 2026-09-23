@@ -428,6 +428,88 @@ function createOcctTsAdapter(mod) {
   }
 
   // ── export ─────────────────────────────────────────────────────────────────
+  /** Row-major 3×3 rotation from XYZ Euler degrees — the cad_transform /
+   * assembly.ts convention p' = T + Rx·(Ry·(Rz·p)). */
+  function eulerMatrix(rotate) {
+    const toRad = (deg) => (deg * Math.PI) / 180
+    const [rx, ry, rz] = rotate
+    const cx = Math.cos(toRad(rx)), sx = Math.sin(toRad(rx))
+    const cy = Math.cos(toRad(ry)), sy = Math.sin(toRad(ry))
+    const cz = Math.cos(toRad(rz)), sz = Math.sin(toRad(rz))
+    return [
+      cy * cz, -cy * sz, sy,
+      cx * sz + sx * sy * cz, cx * cz - sx * sy * sz, -sx * cy,
+      sx * sz - cx * sy * cz, sx * cz + cx * sy * sz, cx * cy,
+    ]
+  }
+
+  /**
+   * Structured assembly STEP (occt.ts >= 0.7.0 writeStepDocument): one root
+   * product plus one named, placed child per instance — instance separation
+   * survives the file instead of a fused single solid. `nodes`:
+   * [{ name, shape, translate?, rotate? }] with unplaced body shapes; the
+   * node transform carries the instance placement. Identity placements are
+   * passed as NaN rows (the kernel omits them — a finite row on the ROOT
+   * leaks uninitialized placements into the file, verified experimentally).
+   */
+  function exportStepDocument(nodes, rootName = 'assembly') {
+    if (typeof mod.writeStepDocument !== 'function' || typeof mod.VectorString !== 'function') {
+      throw new Error('this occt.ts build lacks writeStepDocument (need >= 0.7.0)')
+    }
+    const count = nodes.length + 1 // root + instances
+    const parents = [-1] // the root product
+    const shapeIndices = [-1]
+    const transforms = new Float64Array(count * 12)
+    for (let i = 0; i < 12; i++) transforms[i] = NaN
+    const shapeList = new mod.VectorShape()
+    const nameList = new mod.VectorString()
+    const colorList = new mod.VectorString()
+    try {
+      nameList.push_back(rootName)
+      colorList.push_back('')
+      nodes.forEach((node, index) => {
+        const slot = index + 1
+        parents.push(0)
+        shapeIndices.push(index)
+        shapeList.push_back(node.shape)
+        nameList.push_back(node.name)
+        colorList.push_back('')
+        const translate = node.translate ?? [0, 0, 0]
+        const rotate = node.rotate ?? [0, 0, 0]
+        const base = slot * 12
+        if (translate.every((v) => v === 0) && rotate.every((v) => v === 0)) {
+          for (let i = 0; i < 12; i++) transforms[base + i] = NaN
+        } else {
+          const m = eulerMatrix(rotate)
+          transforms.set([m[0], m[1], m[2], translate[0], m[3], m[4], m[5], translate[1], m[6], m[7], m[8], translate[2]], base)
+        }
+      })
+      // Vectors are fully built BEFORE the pointer writes: embind push_back
+      // can grow the wasm heap, and every allocation must be sized in BYTES
+      // (a 36-double row needs 288 bytes — under-sizing was silently
+      // clobbering adjacent heap and leaking NAN into the STEP text).
+      const iPtr = mod._malloc(count * 4)
+      const sPtr = mod._malloc(count * 4)
+      const tPtr = mod._malloc(count * 12 * 8)
+      try {
+        new Uint32Array(mod.HEAPU8.buffer, iPtr, count).set(parents)
+        new Uint32Array(mod.HEAPU8.buffer, sPtr, count).set(shapeIndices)
+        new Float64Array(mod.HEAPU8.buffer, tPtr, count * 12).set(transforms)
+        const text = mod.writeStepDocument(shapeList, iPtr, sPtr, count, nameList, colorList, tPtr, '')
+        if (mod.hasError()) throw wrapError('writeStepDocument', new Error('kernel error'))
+        return Buffer.from(text, 'utf8')
+      } finally {
+        mod._free(iPtr)
+        mod._free(sPtr)
+        mod._free(tPtr)
+      }
+    } finally {
+      shapeList.delete()
+      nameList.delete()
+      colorList.delete()
+    }
+  }
+
   function exportFile(shape, format) {
     if (format === 'step') {
       return Buffer.from(mod.writeStep(shape, 'mm'), 'utf8')
@@ -472,7 +554,7 @@ function createOcctTsAdapter(mod) {
     makePrim, extrudeProfile2D, makeLoft, makeSweep, makeRevolve,
     filletAll, chamferAll, shell, draft, boolean, transform,
     isValid, volume, centroid,
-    tessellate, faceNormals, exportFile, describe,
+    tessellate, faceNormals, exportFile, exportStepDocument, describe,
     profileWire,
   }
 }

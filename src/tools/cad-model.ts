@@ -98,9 +98,12 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     // Derived state belongs to the outgoing document: clear before replay so
     // a document without constraints/drawings never inherits the previous one's.
     constraintState.model = null
+    /** Latest instances list seen while replaying (assembly re-publish below). */
+    let replayedInstances: OpResult['instances'] | null = null
     for (const op of document.doc.ops) {
       try {
         const result = await runModelOp(op)
+        if (result.instances !== undefined) replayedInstances = result.instances
         // A replayed constraint model returns to live state.
         if (op.kind === 'constraints') {
           constraintState.model = op.model as unknown as ConstraintModel
@@ -129,6 +132,11 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       for (const mesh of all.meshes ?? []) {
         meshCache.set(mesh.bodyId, mirrorMesh(mesh, mesh.bodyId))
       }
+    }
+    // Re-publish the assembly scene so a document opened after a restart shows
+    // the composed (per-instance colored) assembly, not the stale disk mirror.
+    if (replayedInstances !== null && deps.ensureSceneRoute() !== null) {
+      await deps.store.publish(`asm-${document.doc.docId}`, composeAssemblyMeshes(meshCache, replayedInstances))
     }
     syncedEpoch = workerResetEpoch()
   }

@@ -18,12 +18,15 @@ step by step — "model while you watch".
 
 ## Preview
 
-The CAD editor at startup: the demo L-bracket parsed from the packaged
-`demo-bracket.brep` by OCCT — face + edge rendering, hover measurement of the
-picked face (4,800 mm²), a ViewCube navigation cube in the corner, and
-switchable demo parts (bracket / flange / shaft):
+A full modeling session, end to end: the agent builds a parametric assembly
+from plain chat — a 120×80×8 base plate with R5 rounded corners, then four
+bolt instances placed at the corners — while the resident CAD panel tracks
+every step live (parts tree with per-instance colors, ViewCube, "装配体"
+assembly tab, 5 instances · 1,740 triangles). The finished assembly exports
+as a structured STEP document and the agent verifies it by reading the file
+back — 2 solids, 3 products, 2 assembly usages, 1,125.00 mm³:
 
-![dsh-cad CAD editor](docs/img/bracket-preview.png)
+![dsh-cad assembly session](docs/img/assembly-preview.png)
 
 ## Feature Overview
 
@@ -202,8 +205,11 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   session; engineering-drawing HLR takes the shape directly (zero STEP hops);
   editing after shelling is seamless (the v0.8 hosted-body seam is deleted).
   opencascade.js remains as the FALLBACK backend (auto-selected when occt.ts
-  cannot load). Assembly STEP export degrades to a fused single solid (no
-  compound binding); instance separation stays in the assembly scene/document.
+  cannot load). Assembly STEP export writes a **structured document** (occt.ts
+  ≥ 0.7.0 `writeStepDocument`): one root product plus one named, placed child
+  per instance — instance separation survives the file (STL stays a single
+  fused mesh; the fallback backend also fuses). Instance separation stays in
+  the assembly scene/document for the fuse paths.
   Face selection matches `describe()` plane normals (outermost along ±normal)
 - **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
   by the host module table), Z-up CAD convention, empty scene with XYZ axis labels

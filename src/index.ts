@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { SceneStore } from './store.js'
 import { BinarySceneStore } from './modeling/bin-store.js'
 import { DocumentRegistry } from './modeling/registry.js'
-import { registerSceneRoute, registerBinRoute, registerDemoRoute, registerDocsRoute, registerDocsDeleteRoute } from './routes.js'
+import { registerSceneRoute, registerBinRoute, registerDemoRoute, registerDocsRoute, registerDocsDeleteRoute, registerAssemblyRoute } from './routes.js'
 import type { SceneRoute } from './routes.js'
 import { createCadViewTool } from './tools/cad-view.js'
 import { createCadInfoTool } from './tools/cad-info.js'
@@ -52,6 +52,7 @@ export function apply(ctx: Context, config: Config = {}): void {
     registerDemoRoute(server)
     registerDocsRoute(server, registry, binStore)
     registerDocsDeleteRoute(server, registry)
+    registerAssemblyRoute(server, registry)
     routeRegistered = true
     return '/dsh-cad/scene'
   }

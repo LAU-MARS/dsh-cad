@@ -256,10 +256,33 @@ async function applyOp(op) {
     }
     case 'export_assembly': {
       if (instances.size === 0) throw new Error('the assembly is empty')
-      // occt.ts has no compound binding — fuse the placed instances into one
-      // solid (the STEP carries the union; instance separation stays in the
-      // assembly scene/document). The legacy backend kept separate solids via
-      // a TopoDS_Compound; both exports open identically in CAD tools.
+      // Structured document export (occt.ts >= 0.7.0): one root product plus
+      // one named, placed child per instance — instance separation survives
+      // the STEP file. Duplicate names get the same ·N suffix the viewer
+      // composer uses.
+      if (op.format === 'step' && typeof adapter.exportStepDocument === 'function') {
+        const nameUse = new Map()
+        const nodes = []
+        for (const instance of instances.values()) {
+          const body = bodies.get(instance.bodyId)
+          if (body === undefined || body.shape === null || body.shape === undefined) continue // stale instance of a consumed body
+          const seen = nameUse.get(instance.name) ?? 0
+          nameUse.set(instance.name, seen + 1)
+          const name = seen === 0 ? instance.name : `${instance.name}·${seen + 1}`
+          nodes.push({
+            name,
+            shape: body.shape,
+            translate: triplet(instance.translate),
+            rotate: triplet(instance.rotate),
+          })
+        }
+        if (nodes.length === 0) throw new Error('no instance references a live body')
+        const bytes = adapter.exportStepDocument(nodes)
+        return { bytes: bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength), instances: instancesList() }
+      }
+      // STL (a single mesh — no structure to keep) and the legacy fallback
+      // backend: fuse the placed instances into one solid (the STEP carries
+      // the union; instance separation stays in the assembly scene/document).
       let compound = null
       let added = 0
       for (const instance of instances.values()) {

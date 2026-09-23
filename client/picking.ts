@@ -325,10 +325,11 @@ export class PickingController {
 
   private meshesOf(): THREE.Mesh[] {
     // Refresh lazily: bodies can change identity between scenes; traverse the
-    // whole subtree so grouped/nested body containers work too.
+    // whole subtree so grouped/nested body containers work too. Meshes hidden
+    // via the assembly tree are not pickable (Raycaster ignores visibility).
     this.meshes.length = 0
     this.options.cad.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) this.meshes.push(child as THREE.Mesh)
+      if ((child as THREE.Mesh).isMesh && child.visible) this.meshes.push(child as THREE.Mesh)
     })
     return this.meshes
   }
