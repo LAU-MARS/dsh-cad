@@ -41,7 +41,9 @@ dsh web            # http://127.0.0.1:3080
   `node_modules/occt.ts` 不存在（新引入的依赖），不装直接构建/启动会失败。
 - 安装后确认内核 dist 就位：`ls node_modules/occt.ts/dist`（应含 `cli.js` 等）。
 - 内核 dist 解析顺序（`src/modeling/occt-bridge.cjs`）：
-  `DSH_OCCTJS_DIST` 环境变量 → `node_modules/occt.ts/dist`（npm，默认）
+  `DSH_OCCTJS_DIST` 环境变量 → Node 自带的 `occt.ts` 依赖解析
+  （require.resolve 沿所有父级 node_modules 向上查，npm/yarn 扁平安装与
+  pnpm 符号链接布局均命中）→ `node_modules/occt.ts/dist`（仓库根直接布局）
   → `<repo>/../opencascade-ts/dist`（同级 checkout）→ `vendor/`
   → `node_modules/opencascade-ts`。
   若要试用上游未发布的新特性，可 checkout opencascade-ts 到仓库同级目录，

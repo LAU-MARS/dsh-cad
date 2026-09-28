@@ -4,9 +4,10 @@
 
 [![homepage](https://img.shields.io/badge/homepage-dsh--cad-4D6BFE)](https://lau-mars.github.io/dsh-cad/)
 [![npm](https://img.shields.io/npm/v/dsh-cad)](https://www.npmjs.com/package/dsh-cad)
-[![dsh plugin](https://img.shields.io/badge/dsh-plugin-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![dsh](https://img.shields.io/npm/v/@deepseek-ai%2Fdsh?label=dsh)](https://www.npmjs.com/package/@deepseek-ai/dsh)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
-[![OCCT](https://img.shields.io/badge/kernel-OCCT-4D6BFE)](https://github.com/donalffons/opencascade.js)
+[![occt.ts](https://img.shields.io/npm/v/occt.ts)](https://www.npmjs.com/package/occt.ts)
+[![ansatz](https://img.shields.io/npm/v/ansatz-wasm?label=ansatz)](https://www.npmjs.com/package/ansatz-wasm)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4D6BFE)](./LICENSE)
 
 [English](./README.md) | 简体中文
@@ -29,13 +30,14 @@
 
 | 能力 | 说明 |
 | --- | --- |
-| ⚙️ 单内核架构 | **occt.ts 为主建模内核**（真 BSpline、抽壳/拔模原生、质心），opencascade.js 仅作为加载失败时的降级后端；v0.8 的「抽壳后不可编辑」接缝消失——抽壳/拔模后可继续圆角/倒角/布尔 |
+| ⚙️ 单内核架构 | **occt.ts 为主建模内核**（真 BSpline、抽壳/拔模原生、质心），opencascade.js 仅作为加载失败时的降级后端；旧版的「抽壳后不可编辑」接缝消失——抽壳/拔模后可继续圆角/倒角/布尔 |
 | 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP / DCPRT（3D），DXF / SVG（2D），对话内嵌交互卡片（轨道旋转 / 缩放 / 线框 / 平移） |
 | 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
 | 🏗️ 参数化建模 | 基本体、轮廓拉伸、**放样**、**扫掠**、**旋转体**、布尔、全边圆角/倒角、**抽壳**、**拔模**、**阵列（线性/圆周）**、变换；轮廓支持**曲线段**（圆弧/圆为精确 BRep，B 样条为采样近似）—— OCCT 精确 BRep，非网格近似 |
+| ✏️ 命名草图 | 文档中独立的可命名轮廓（Sketch1…）：`cad_sketch_new` / `edit` / `list` / `delete`；拉伸/旋转/扫掠**按名字引用**，`cad_sketch_edit` 原位改写定义并全量重放，所有引用特征级联重建——参数化闭环。草图以 Onshape 式**蓝色曲线 + 平面框**在视口中实时渲染（回改即刷新），并列于零件页签左侧的**特征树**（草图 + 特征、眼睛显隐、点选高亮实体） |
 | 🗂️ Codex 式文档页签 | 右侧显示区页签栏 + 「+」菜单：**零件**（Part Studio，默认）/ **装配体**（实例插入/移动/移除）/ **工程图**（真实隐藏线图纸），页签可关闭、常驻不丢状态 |
 | 📁 多文档 file 空间 | 工作区命名的建模文档（`.dsh-cad/docs/`），每个会话绑定自己的活动文档——新会话从空文档开始，不再继承历史遗留零件；面板上的文件夹按钮列出全部文档（预览 / 删除），对话中用 `cad_doc_new` / `cad_doc_open` 切换建模目标 |
-| 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，**occt.ts** 内核（npm 依赖，OCCT 7.9）真实隐藏线消除（虚线）；图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
+| 📐 工程图 | GB 第一角布局：主视图 / 俯视图 / 左视图 + 轴测图，**occt.ts** 内核（npm 依赖）真实隐藏线消除（虚线）；图框、标题栏、总尺寸标注、标准比例系列；导出 SVG / DXF |
 | 🔗 约束求解与运动 | 集成 **Ansatz** 几何约束求解器（**`ansatz-wasm` 一条命令即可**：`npm install ansatz-wasm`，零 Rust 工具链 / 零原生二进制 / 零依赖）：实体/约束建模（装配实例 ↔ rigid3 位姿自动映射）、求解回写、DOF/残差/冗余/建议全量诊断（面向 LLM 的中文报告）、参数扫描运动学（`cad_constraint` / `cad_solve` / `cad_motion`） |
 | 📐 几何测量 | 精确体积（mm³）、包围盒、三角统计、DXF 图层 |
 | 📤 按需导出 | STEP（参数化）/ STL（网格），仅在用户要求时写文件 |
@@ -58,10 +60,8 @@ dsh plugin --profile web add dsh-cad
 
 ### 版本要求
 
-- **Node.js** ≥ 22
-- **dsh CLI**（`@deepseek-ai/dsh`）：本项目开发基于 **0.1.0-rc.7**
-  （最低支持版本，已在 `package.json` 的 `engines` 字段声明）；
-  建议 **≥ 0.1.1-rc.2**（2026-08-31 实测通过）
+- **Node.js** 与 **dsh CLI**（`@deepseek-ai/dsh`）的最低版本以顶部徽章和
+  `package.json` 的 `engines` 字段为准——正文不再写具体版本号，避免过时
 
 ### 从源码安装（开发模式）
 
@@ -70,7 +70,7 @@ git clone https://github.com/LAU-MARS/dsh-cad.git
 cd dsh-cad
 npm install && npm run build && npm test   # 依赖含 occt.ts（工程图真实消隐内核，~20MB wasm）
 
-npm install -g @deepseek-ai/dsh@^0.1.1-rc.2 pnpm   # 需要 Node ≥ 22
+npm install -g @deepseek-ai/dsh pnpm
 dsh web                                  # 首次启动初始化 profile 后 Ctrl-C
 
 dsh plugin --profile web add /path/to/dsh-cad
@@ -96,14 +96,18 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | `cad_view` | 打开 CAD 文件，渲染交互式查看器卡片 |
 | `cad_info` | 只读几何元信息（格式/数量/包围盒/单位/图层） |
 | `cad_create_prim` | 基本体（mm，Z-up），`at` 定位、`axis` 定向（精确轴角旋转） |
-| `cad_extrude_profile` | XY 平面闭合多边形沿 +Z 拉伸成实体 |
+| `cad_sketch_new` | 新建命名草图（Sketch1…）：{start, segments} / {circle} / 平面点列——供轮廓特征按名引用 |
+| `cad_sketch_edit` | 回改草图：定义 op 原位改写 + 日志全量重放，所有引用特征级联重建 |
+| `cad_sketch_list` | 列出文档草图（名称 / 形式 / 规模） |
+| `cad_sketch_delete` | 删除草图（仍被特征引用时拒绝） |
+| `cad_extrude_profile` | XY 平面闭合轮廓沿 +Z 拉伸成实体——内联点列/曲线段/圆，或引用命名草图（`sketch`） |
 | `cad_loft` | 放样：多个闭合截面（各自平面内的 [x,y,z…] 环）蒙皮成体，截面形状/点数可不同，`ruled` 直纹 |
-| `cad_revolve` | 旋转体：闭合轮廓绕轴回转（profile 坐标 = (半径, 高度)，支持曲线段——圆角轮缘精确），`angle` 角度可选 |
+| `cad_revolve` | 旋转体：闭合轮廓绕轴回转（profile 坐标 = (半径, 高度)，支持曲线段——圆角轮缘精确），`angle` 角度可选；可引用命名草图 |
 | `cad_chamfer` | 倒角：全锐边等距离斜切（mm） |
 | `cad_pattern` | 阵列：线性（delta 间距）或圆周（主轴 + at 轴点 + 总角度），生成副本体，可再 fuse 合并 |
 | `cad_shell` | 抽壳：壁厚向内生长、外表面保留；`open` 为开口面的外法向列表（空 = 封闭内腔）。经 occt.ts 内核执行，结果为**托管体** |
 | `cad_draft` | 拔模：壁面绕中性面倾斜 `angle` 度（脱模斜度），`direction` 为拔模方向，默认自动选平行于该方向的壁面。经 occt.ts 内核执行，结果为**托管体** |
-| `cad_sweep` | 扫掠：闭合 2D 轮廓沿 3D 路径（[x,y,z…]）扫出实体；轮廓自动置于路径起点垂面，无需手工定向 |
+| `cad_sweep` | 扫掠：闭合 2D 轮廓沿 3D 路径（[x,y,z…]）扫出实体；轮廓自动置于路径起点垂面，无需手工定向；可引用命名草图 |
 | `cad_boolean` | fuse / cut / common（经典打孔：plate cut cylinder） |
 | `cad_fillet` | 全锐边等半径圆角 |
 | `cad_transform` | 平移 / 欧拉旋转 / 镜像 |
@@ -160,7 +164,7 @@ cad_view(path)                        建模工具（cad_create_prim 等）
         浏览器卡片 + 常驻 "3D" 页签（three.js / SVG，Z-up，XYZ 轴）
 ```
 
-- **两个 worker**：导入（occt-import-js，只读 STEP/IGES/BREP）与建模（opencascade.js 1.1.1，
+- **两个 worker**：导入（occt-import-js，只读 STEP/IGES/BREP）与建模（opencascade.js，
   完整 OCCT）分离，均惰性启动；embind 重载构造器的 `_N` 后缀约定封装在
   `src/modeling/occt-adapter.cjs`（全部经运行时实证）
 - **直通管道**：建模场景零 base64 / 零 JSON 大数组 / 零每步落盘（磁盘镜像 1.5s 防抖，
@@ -171,8 +175,9 @@ cad_view(path)                        建模工具（cad_create_prim 等）
   `hiddenLines()` 真实消隐线、STEP/BRep 字节级 `readStep`/`readBrep`/`writeStep`/
   `writeBrep`（无需 MEMFS）、自带特征边提取的网格化、`hasError()`/`lastError()`
   错误契约。几何以 STEP 字节跨内核交换，投影线段重映射进图纸坐标系。内核 dist
-  解析顺序：`DSH_OCCTJS_DIST` 环境变量 → `node_modules/occt.ts/dist`（npm，
-  默认）→ `<repo>/../opencascade-ts/dist`（兄弟检出）→ `vendor/` →
+  解析顺序：`DSH_OCCTJS_DIST` 环境变量 → Node 自带的 `occt.ts` 依赖解析（沿所有
+  父级 node_modules 向上查——npm/yarn 扁平安装与 pnpm 符号链接布局都能命中）→
+  `<repo>/../opencascade-ts/dist`（兄弟检出）→ `vendor/` →
   `node_modules/opencascade-ts`
 - **约束求解（Ansatz）**：求解器是 npm 依赖 **`ansatz-wasm`**（wasm-bindgen
   构建，单包 ~538KB、零依赖）——安装 dsh-cad 即自动获得，也可单独
@@ -182,12 +187,12 @@ cad_view(path)                        建模工具（cad_create_prim 等）
   原样透出给 LLM。装配实例位姿（平移 + XYZ 欧拉度）与求解器 rigid3（平移 + 指数映射
   旋转，弧度）双向映射。求解器能力按阶段推进（当前支持点到原点距离），管道契约
   已就绪、无需随求解器成长改动
-- **单内核架构（v0.9）**：建模主内核切换为 **occt.ts ≥0.5.0**——prims/曲线段轮廓
+- **单内核架构**：建模主内核为 **occt.ts**——prims/曲线段轮廓
   （真 BSpline 插值）/放样/扫掠/旋转/布尔/圆角/倒角/抽壳/拔模/镜像（scale(-1)+
   旋转 π 组合）/质心全在一个会话内，工程图 HLR 直接吃 shape（零 STEP 中转），
-  抽壳后继续编辑无缝（v0.8 的托管接缝删除）。opencascade.js 保留为**降级后端**
+  抽壳后继续编辑无缝（旧托管接缝已删除）。opencascade.js 保留为**降级后端**
   （occt.ts 加载失败时自动启用）。装配体 STEP 导出为**结构化文档**（occt.ts
-  ≥ 0.7.0 `writeStepDocument`）：一个根产品 + 每实例一个命名、带位姿的子产品——
+  `writeStepDocument`）：一个根产品 + 每实例一个命名、带位姿的子产品——
   实例分离在文件中保留（STL 仍为单一熔合网格；降级后端同样走 fuse）。fuse
   路径下实例分离仅保留在装配场景/文档中。面选择按 `describe()` 平面法向
   匹配（±法向取外侧投影最大者）
@@ -197,7 +202,7 @@ cad_view(path)                        建模工具（cad_create_prim 等）
 ## 测试
 
 ```sh
-npm test                             # 41 项：转换器 / 建模 worker（体积精确断言）/ DCPRT 往返 / FreeCAD 执行器 / 图片轮廓 / 二进制管道 / 文档持久化
+npm test                             # 全套：转换器 / 建模 worker（体积精确断言）/ DCPRT 往返 / FreeCAD + Onshape 执行器 / 图片轮廓 / 二进制管道 / 文档持久化
 node test/m0-kernel-check.cjs        # OCCT 内核 API 冒烟
 node test/route-check.mjs            # JSON 场景路由层
 node test/visual/serve.mjs           # 浏览器卡片/页签视觉验证页（http://127.0.0.1:3987）

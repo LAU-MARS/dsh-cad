@@ -427,6 +427,133 @@ function createOcctTsAdapter(mod) {
     return normals
   }
 
+  // ── sketch display wires ───────────────────────────────────────────────────
+  /**
+   * Discretize a sketch profile for viewport display (Onshape-style): ONE
+   * flat polyline [x,y,z,…] on z=0 plus the TRUE vertex points (polygon
+   * corners / segment endpoints — never arc or B-spline sampling points;
+   * circles carry no vertices). Polygons/circles/arcs are analytic;
+   * B-spline segments round-trip through the kernel's edge tessellator
+   * (single-edge wires DO yield edge points; multi-edge wires do not, hence
+   * per-segment discretization). Returns null when the profile is not
+   * discretizable (never throws — display-only; the modeling path is
+   * unaffected).
+   */
+  function sketchWirePoints(profile) {
+    const polyline = []
+    const vertices = []
+    try {
+      if (Array.isArray(profile)) {
+        if (profile.length < 6 || profile.length % 2 !== 0) return null
+        for (let i = 0; i + 1 < profile.length; i += 2) {
+          polyline.push(profile[i], profile[i + 1], 0)
+          vertices.push(profile[i], profile[i + 1], 0)
+        }
+        polyline.push(profile[0], profile[1], 0)
+        return { polyline, vertices }
+      }
+      if (profile === null || typeof profile !== 'object') return null
+      if (profile.circle !== undefined) {
+        const c = profile.circle
+        if (!Array.isArray(c.center) || typeof c.radius !== 'number' || !(c.radius > 0)) return null
+        const steps = 96
+        for (let i = 0; i <= steps; i++) {
+          const a = (i / steps) * 2 * Math.PI
+          polyline.push(c.center[0] + c.radius * Math.cos(a), c.center[1] + c.radius * Math.sin(a), 0)
+        }
+        return { polyline, vertices }
+      }
+      const segs = Array.isArray(profile.segments) ? profile.segments : []
+      if (segs.length === 0 || !Array.isArray(profile.start) || profile.start.length !== 2) return null
+      let cur = [profile.start[0], profile.start[1]]
+      polyline.push(cur[0], cur[1], 0)
+      vertices.push(cur[0], cur[1], 0)
+      for (const seg of segs) {
+        if (seg === null || typeof seg !== 'object') continue
+        if (seg.type === 'line') {
+          if (!Array.isArray(seg.to)) continue
+          cur = [seg.to[0], seg.to[1]]
+          polyline.push(cur[0], cur[1], 0)
+          vertices.push(cur[0], cur[1], 0)
+        } else if (seg.type === 'arc') {
+          if (!Array.isArray(seg.to) || !Array.isArray(seg.center)) continue
+          const c = seg.center
+          const r = Math.hypot(cur[0] - c[0], cur[1] - c[1])
+          const a0 = Math.atan2(cur[1] - c[1], cur[0] - c[0])
+          const a1 = Math.atan2(seg.to[1] - c[1], seg.to[0] - c[0])
+          const span = seg.ccw !== false ? (a1 > a0 ? a1 - a0 : a1 + 2 * Math.PI - a0) : (a1 < a0 ? a0 - a1 : a0 + 2 * Math.PI - a1)
+          const start = seg.ccw !== false ? a0 : a1
+          const steps = Math.max(2, Math.ceil((Math.abs(span) / (Math.PI / 2)) * 12))
+          for (let i = 1; i <= steps; i++) {
+            const a = start + (span * i) / steps
+            polyline.push(c[0] + r * Math.cos(a), c[1] + r * Math.sin(a), 0)
+          }
+          cur = [seg.to[0], seg.to[1]]
+          vertices.push(cur[0], cur[1], 0)
+        } else if (seg.type === 'bspline' && Array.isArray(seg.through) && seg.through.length >= 2) {
+          const pts = [cur[0], cur[1], 0]
+          for (const p of seg.through) pts.push(p[0], p[1], 0)
+          const { ptr, free } = mallocF64(pts)
+          try {
+            const spline = mod.makeBsplineThrough(ptr, pts.length / 3, false, 1e-6)
+            const data = mod.tessellate(spline, 0.1, 20, false)
+            try {
+              const n = data.edgePointCount()
+              if (n > 0) {
+                const view = new Float32Array(mod.HEAPU8.buffer, data.edgesPtr(), n * 3)
+                for (let i = 0; i < n; i++) polyline.push(view[i * 3] ?? 0, view[i * 3 + 1] ?? 0, 0)
+              }
+            } finally {
+              data.delete()
+            }
+            if (typeof spline.delete === 'function') spline.delete()
+          } finally {
+            free()
+          }
+          const last = seg.through[seg.through.length - 1]
+          cur = [last[0], last[1]]
+          vertices.push(cur[0], cur[1], 0)
+        }
+      }
+      if (Math.hypot(cur[0] - profile.start[0], cur[1] - profile.start[1]) > 1e-9) {
+        polyline.push(profile.start[0], profile.start[1], 0)
+      }
+      return polyline.length >= 9 ? { polyline, vertices } : null
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * Triangulate the sketch's enclosed region (the translucent Onshape-style
+   * fill): build the exact profile wire, face it via the kernel (makeFace)
+   * and tessellate. Returns { positions, indices } as plain arrays, or null
+   * when the profile does not bound a face (display-only, never throws).
+   */
+  function sketchFaceMesh(profile) {
+    let face = null
+    const holes = new mod.VectorShape()
+    try {
+      const wire = profileWire(profile, [0, 0, 0], [1, 0, 0], [0, 1, 0])
+      face = mod.makeFace(wire, holes)
+      if (face === null || face.isNull()) return null
+      const data = mod.tessellate(face, 0.1, 20, false)
+      try {
+        const positions = Array.from(new Float32Array(mod.HEAPU8.buffer, data.positionsPtr(), data.positionCount() * 3))
+        const indices = Array.from(new Uint32Array(mod.HEAPU8.buffer, data.indicesPtr(), data.indexCount()))
+        if (indices.length < 3) return null
+        return { positions, indices }
+      } finally {
+        data.delete()
+      }
+    } catch {
+      return null
+    } finally {
+      if (face !== null && typeof face.delete === 'function') face.delete()
+      holes.delete()
+    }
+  }
+
   // ── export ─────────────────────────────────────────────────────────────────
   /** Row-major 3×3 rotation from XYZ Euler degrees — the cad_transform /
    * assembly.ts convention p' = T + Rx·(Ry·(Rz·p)). */
@@ -555,7 +682,7 @@ function createOcctTsAdapter(mod) {
     filletAll, chamferAll, shell, draft, boolean, transform,
     isValid, volume, centroid,
     tessellate, faceNormals, exportFile, exportStepDocument, describe,
-    profileWire,
+    profileWire, sketchWirePoints, sketchFaceMesh,
   }
 }
 

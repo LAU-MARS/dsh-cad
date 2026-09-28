@@ -56,6 +56,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   let document = new ModelDocument(deps.workspaceRoot)
   /** bodyId → raw worker mesh mirror (binary scene source, zero encoding). */
   const meshCache = new Map<string, BinMeshData>()
+  /** sketchName → display payload { wire, points, fill } (repopulated by replay). */
+  const sketchWires = new Map<string, { wire?: number[]; points?: number[]; fill?: { positions: number[]; indices: number[] } }>()
   /** Reset epoch after the last sync — out-of-band replays (cad_view on a
    *  .dcprt) bump the epoch and force a re-replay before the next op. */
   let syncedEpoch = -1
@@ -98,12 +100,19 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     // Derived state belongs to the outgoing document: clear before replay so
     // a document without constraints/drawings never inherits the previous one's.
     constraintState.model = null
+    sketchWires.clear()
     /** Latest instances list seen while replaying (assembly re-publish below). */
     let replayedInstances: OpResult['instances'] | null = null
     for (const op of document.doc.ops) {
       try {
         const result = await runModelOp(op)
         if (result.instances !== undefined) replayedInstances = result.instances
+        // A replayed sketch re-discretizes its display payload (curves,
+        // vertex dots, region fill) — cad_sketch_edit's rewrite path relies
+        // on this to refresh the viewport.
+        if (op.kind === 'sketch_set' && result.wire !== undefined) {
+          sketchWires.set(op.name, { wire: result.wire, points: result.points, fill: result.fill })
+        }
         // A replayed constraint model returns to live state.
         if (op.kind === 'constraints') {
           constraintState.model = op.model as unknown as ConstraintModel
@@ -200,6 +209,77 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     }
   }
 
+  /**
+   * Sketch display meshes (Onshape-style viewport curves): a translucent
+   * region fill (lighter than the lines), the blue profile curves as LINES
+   * on z=0, TRUE vertex dots at the corners/ends, and a faint gray plane
+   * frame around the bounding box. Names carry the `sketch:` prefix so the
+   * feature tree's eye toggles can address them (`sketch:<name>[:plane|:fill|:pts]`).
+   */
+  const SKETCH_LINE_COLOR = 0x2f80d6
+  const SKETCH_FILL_COLOR = 0x74a9e0
+  const SKETCH_POINT_COLOR = 0x1c5fa8
+  const SKETCH_PLANE_COLOR = 0xb9c2cc
+  const polylineWireMesh = (name: string, color: number, flat: number[]): BinMeshData => {
+    const positions = new Float32Array(flat)
+    const segments = flat.length / 3 - 1
+    const indices = new Uint32Array(segments * 2)
+    for (let i = 0, s = 0; i < segments; i++) {
+      indices[s++] = i
+      indices[s++] = i + 1
+    }
+    return { name, color, mode: 'wire', positions, indices }
+  }
+  const sketchWireMeshes = (): BinMeshData[] => {
+    const out: BinMeshData[] = []
+    for (const [name, payload] of sketchWires) {
+      // Translucent enclosed region (kernel-triangulated face).
+      if (payload.fill !== undefined) {
+        out.push({
+          name: `sketch:${name}:fill`,
+          color: SKETCH_FILL_COLOR,
+          mode: 'fill',
+          positions: new Float32Array(payload.fill.positions),
+          indices: new Uint32Array(payload.fill.indices),
+        })
+      }
+      if (payload.wire !== undefined) {
+        out.push(polylineWireMesh(`sketch:${name}`, SKETCH_LINE_COLOR, payload.wire))
+      }
+      // TRUE vertex dots (screen-constant size client-side).
+      if (payload.points !== undefined && payload.points.length >= 3) {
+        out.push({
+          name: `sketch:${name}:pts`,
+          color: SKETCH_POINT_COLOR,
+          mode: 'points',
+          positions: new Float32Array(payload.points),
+          indices: new Uint32Array(0),
+        })
+      }
+      // Plane frame: the profile bbox padded 20%, drawn as a closed rectangle.
+      if (payload.wire !== undefined) {
+        const flat = payload.wire
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+        for (let i = 0; i + 2 < flat.length; i += 3) {
+          if (flat[i]! < minX) minX = flat[i]!
+          if (flat[i]! > maxX) maxX = flat[i]!
+          if (flat[i + 1]! < minY) minY = flat[i + 1]!
+          if (flat[i + 1]! > maxY) maxY = flat[i + 1]!
+        }
+        if (Number.isFinite(minX)) {
+          const pad = Math.max(2, 0.2 * Math.max(maxX - minX, maxY - minY))
+          const frame = [
+            minX - pad, minY - pad, 0, maxX + pad, minY - pad, 0,
+            maxX + pad, maxY + pad, 0, minX - pad, maxY + pad, 0,
+            minX - pad, minY - pad, 0,
+          ]
+          out.push(polylineWireMesh(`sketch:${name}:plane`, SKETCH_PLANE_COLOR, frame))
+        }
+      }
+    }
+    return out
+  }
+
   async function syncScene(op: ModelOp, result: OpResult, filePath?: string): Promise<Record<string, unknown>> {
     if (result.mesh !== undefined && result.bodyId !== undefined) {
       meshCache.set(result.bodyId, mirrorMesh(result.mesh, result.bodyId))
@@ -217,10 +297,13 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     const meshes = [...meshCache.values()]
     const triangles = meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
     const sceneUrlBase = deps.ensureSceneRoute()
-    if (meshes.length > 0) {
+    // Bodies + sketch display wires ride the SAME binary scene, so a version
+    // bump (any op, cad_sketch_edit's replay included) refreshes both.
+    const publishable = [...meshes, ...sketchWireMeshes()]
+    if (publishable.length > 0) {
       // Direct worker→three.js transport: packed binary, in-memory, no file
       // write per step (a debounced disk mirror keeps restart replay).
-      await deps.store.publish(document.doc.docId, meshes)
+      await deps.store.publish(document.doc.docId, publishable)
     }
     const value: Record<string, unknown> = {
       triangles,
@@ -468,14 +551,234 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     presentResult: () => ({ card: 'generic', title: 'CAD create' }),
   }) as unknown as ToolDefinition
 
+  // ── named sketches (Sketch1…) — standalone, editable profiles ─────────────
+
+  /** Feature ops referencing a named sketch (for referrer scans / edit reports). */
+  const sketchReferrers = (name: string): string[] => {
+    const out: string[] = []
+    for (const op of document.doc.ops) {
+      if ('sketch' in op && op.sketch === name) out.push(op.bodyId)
+    }
+    return out
+  }
+
+  /** Sketch definitions in log order (last set wins, deletes remove). */
+  const sketchesInLog = (): Array<{ name: string; profile: unknown }> => {
+    const byName = new Map<string, unknown>()
+    for (const op of document.doc.ops) {
+      if (op.kind === 'sketch_set') byName.set(op.name, op.profile)
+      else if (op.kind === 'sketch_delete') byName.delete(op.name)
+    }
+    return [...byName].map(([name, profile]) => ({ name, profile }))
+  }
+
+  /** Compact profile summary for cad_sketch_list output. */
+  const sketchProfileStats = (profile: unknown): Record<string, unknown> => {
+    if (Array.isArray(profile)) return { type: 'polygon', points: profile.length / 2 }
+    if (profile !== null && typeof profile === 'object') {
+      const record = profile as Record<string, unknown>
+      if (record.circle !== undefined) {
+        return { type: 'circle', radius: (record.circle as { radius?: number }).radius }
+      }
+      const segments = Array.isArray(record.segments) ? record.segments.length : 0
+      return { type: 'segments', segments }
+    }
+    return { type: 'unknown' }
+  }
+
+  const cadSketchNew = defineTool({
+    name: 'cad_sketch_new',
+    description:
+      'Create a NAMED sketch (e.g. Sketch1) — a standalone, editable profile kept in the modeling document AND RENDERED IN THE VIEWPORT as blue curves + a plane frame (Onshape-style; refreshes on every edit, listed in the left feature tree with an eye toggle). Same profile forms as cad_extrude_profile: {start: [x,y], segments: […]} curve segments, {circle: {center, radius}}, or a legacy flat points loop. ' +
+      'Features then reference it BY NAME (cad_extrude_profile / cad_revolve / cad_sweep `sketch` param), and cad_sketch_edit redefines it with every dependent feature rebuilt — the parametric loop.',
+    parameters: {
+      profile: { type: 'json', required: true, description: 'Profile: {start:[x,y], segments:[…]} | {circle:{center:[x,y], radius}} | flat [x0,y0,…] loop.' },
+      name: { type: 'string', description: 'Sketch name (default Sketch<N>, auto-numbered).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sketch: { type: 'string', required: true, description: 'The sketch name (as referenced by features).' },
+          type: { type: 'string', required: true, description: 'Profile form: polygon | segments | circle.' },
+          points: { type: 'number', description: 'Polygon point count.' },
+          segments: { type: 'number', description: 'Curve-segment count.' },
+          radius: { type: 'number', description: 'Circle radius (mm).' },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const existing = new Set(sketchesInLog().map((entry) => entry.name))
+      let n = existing.size + 1
+      while (existing.has(`Sketch${n}`)) n += 1
+      const name = typeof args.name === 'string' && args.name !== '' ? args.name : `Sketch${n}`
+      if (existing.has(name)) throw new Error(`sketch already exists: ${name} — use cad_sketch_edit to redefine it`)
+      const op: ModelOp = { kind: 'sketch_set', name, profile: args.profile }
+      const result = await runModelOp(op)
+      if (result.wire !== undefined) {
+        sketchWires.set(name, { wire: result.wire, points: result.points, fill: result.fill })
+      }
+      const value = await syncScene(op, result)
+      return { sketch: name, ...sketchProfileStats(args.profile), ...value } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD sketch ${String(args.name ?? 'new')}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD sketch created' }),
+  }) as unknown as ToolDefinition
+
+  const cadSketchEdit = defineTool({
+    name: 'cad_sketch_edit',
+    description:
+      'Redefine a named sketch (回改): the document op is rewritten in place and the whole log replayed, so EVERY feature referencing the sketch (extrude/revolve/sweep via their `sketch` param) rebuilds with the new profile — and the viewport\'s blue sketch curves + plane frame update to match. Use for parametric iteration: change Sketch1, the extrusion follows.',
+    parameters: {
+      name: { type: 'string', required: true, description: 'The sketch to redefine (must exist).' },
+      profile: { type: 'json', required: true, description: 'The new profile (same forms as cad_sketch_new).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sketch: { type: 'string', required: true, description: 'The redefined sketch name.' },
+          dependents: { type: 'array', items: { type: 'string' }, description: 'BodyIds rebuilt because they reference the sketch.' },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const name = String(args.name ?? '')
+      const dependents = sketchReferrers(name)
+      if (!(await document.rewriteSketch(name, args.profile))) {
+        throw new Error(`unknown sketch: ${name} — create it with cad_sketch_new`)
+      }
+      // The rewritten definition still precedes its consumers in the log, so
+      // the full replay recomputes every dependent feature with the new profile.
+      await replayActiveDoc()
+      const meshes = [...meshCache.values(), ...sketchWireMeshes()]
+      if (meshes.length > 0) await deps.store.publish(document.doc.docId, meshes)
+      await deps.registry.touch(document.doc.docId, { opCount: document.doc.version, bodyCount: meshCache.size })
+      const triangles = meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
+      const value: Record<string, unknown> = {
+        sketch: name,
+        dependents,
+        bodies: meshes.length,
+        triangles,
+        version: document.doc.version,
+      }
+      const sceneUrlBase = deps.ensureSceneRoute()
+      if (sceneUrlBase !== null) {
+        value.sceneUrl = `${sceneUrlBase.replace('/scene', '/bin')}/${document.doc.docId}?v=${document.doc.version}`
+      }
+      return value as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD sketch edit ${String(args.name ?? '')}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD sketch edited' }),
+  }) as unknown as ToolDefinition
+
+  const cadSketchList = defineTool({
+    name: 'cad_sketch_list',
+    description: 'List the document\'s named sketches: name, profile form and size. Read-only.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sketches: {
+            type: 'array',
+            required: true,
+            description: 'One entry per sketch.',
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', required: true, description: 'Sketch name.' },
+                type: { type: 'string', required: true, description: 'polygon | segments | circle.' },
+                points: { type: 'number', description: 'Polygon point count.' },
+                segments: { type: 'number', description: 'Curve-segment count.' },
+                radius: { type: 'number', description: 'Circle radius (mm).' },
+              },
+            },
+          },
+          ...requiredCounts,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(_args, exec: unknown) {
+      await resolveDoc(exec)
+      const meshes = [...meshCache.values()]
+      const sketches = sketchesInLog().map(({ name, profile }) => ({ name, ...sketchProfileStats(profile) }))
+      return {
+        sketches,
+        bodies: meshes.length,
+        triangles: meshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0),
+        version: document.doc.version,
+      } as never
+    },
+    presentCall: () => ({ card: 'generic', title: 'CAD sketch list', kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD sketches' }),
+  }) as unknown as ToolDefinition
+
+  const cadSketchDelete = defineTool({
+    name: 'cad_sketch_delete',
+    description:
+      'Permanently delete a named sketch. Refused while features still reference it (delete those bodies first, or redefine the sketch with cad_sketch_edit).',
+    parameters: {
+      name: { type: 'string', required: true, description: 'The sketch to delete.' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          sketch: { type: 'string', required: true, description: 'The deleted sketch name.' },
+          ...requiredCounts,
+          ...commonOptional,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderModel(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const name = String(args.name ?? '')
+      const referrers = sketchReferrers(name)
+      if (referrers.length > 0) {
+        throw new Error(`sketch ${name} is referenced by ${referrers.join(', ')} — delete those bodies first or redefine the sketch with cad_sketch_edit`)
+      }
+      const op: ModelOp = { kind: 'sketch_delete', name }
+      const result = await runModelOp(op) // unknown sketch → error, nothing recorded
+      sketchWires.delete(name)
+      const value = await syncScene(op, result)
+      return { sketch: name, ...value } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD sketch delete ${String(args.name ?? '')}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD sketch deleted' }),
+  }) as unknown as ToolDefinition
+
   const cadExtrude = defineTool({
     name: 'cad_extrude_profile',
     description:
       'Create a solid by extruding a closed profile in the XY plane along +Z (mm). `profile` accepts CURVE SEGMENTS — {start: [x,y], segments: [{type: "line"|"arc"|"bspline", …}]} (arc: to/center/ccw; bspline: through-points, sampled smooth curve) — or {circle: {center, radius}} for a round profile. ' +
-      'The legacy flat `points` polygon loop (≥3 points, auto-closed) still works. Use cad_boolean for holes.',
+      'The legacy flat `points` polygon loop (≥3 points, auto-closed) still works. Alternatively pass `sketch` (a named sketch from cad_sketch_new) instead of an inline profile — editing the sketch then rebuilds this body (cad_sketch_edit). Use cad_boolean for holes.',
     parameters: {
       points: { type: 'array', items: { type: 'number' }, description: 'Legacy flat [x0,y0,x1,y1,…] polygon loop (mm).' },
       profile: { type: 'json', description: 'Curve-segment profile: {start:[x,y], segments:[…]} or {circle:{center:[x,y], radius}}.' },
+      sketch: { type: 'string', description: 'Named sketch (cad_sketch_new) to extrude — replaces points/profile; cad_sketch_edit rebuilds this body.' },
       height: { type: 'number', description: 'Extrusion height (mm, default 10).' },
       base: { type: 'number', description: 'Z of the profile plane (mm, default 0).' },
       name: { type: 'string', description: 'Optional display name.' },
@@ -496,11 +799,15 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     isConcurrencySafe: () => false,
     async execute(args, exec: unknown) {
       await resolveDoc(exec)
-      if (args.profile === undefined && (args.points === undefined || args.points.length < 6 || args.points.length % 2 !== 0)) {
-        throw new Error('provide a curve-segment `profile` object or a flat points array of ≥3 [x,y] pairs')
+      if (args.sketch === undefined && args.profile === undefined && (args.points === undefined || args.points.length < 6 || args.points.length % 2 !== 0)) {
+        throw new Error('provide a curve-segment `profile` object, a flat points array of ≥3 [x,y] pairs, or a named `sketch`')
       }
       const bodyId = nextBodyId()
-      const op: ModelOp = { kind: 'extrude_profile', bodyId, ...(args.profile !== undefined ? { profile: args.profile } : { points: args.points }), height: args.height, base: args.base, name: args.name }
+      const op: ModelOp = {
+        kind: 'extrude_profile', bodyId,
+        ...(args.sketch !== undefined ? { sketch: String(args.sketch) } : args.profile !== undefined ? { profile: args.profile } : { points: args.points }),
+        height: args.height, base: args.base, name: args.name,
+      }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
     },
@@ -558,6 +865,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       '`path` is a flat [x0,y0,z0, …] polyline. Straight, collinear and gently curved paths give exact solids; a SHARP direction change with a section large relative to the corner self-intersects — such a result is REJECTED by the BRepCheck validity gate (the error names the cause), so round or chamfer the corners in the path.',
     parameters: {
       profile: { type: 'json', required: true, description: 'Closed outline on the start plane: flat [x,y,…] array, {start, segments:[…]} curve chain, or {circle:{center,radius}}.' },
+      sketch: { type: 'string', description: 'Named sketch (cad_sketch_new) to sweep — replaces the inline profile; cad_sketch_edit rebuilds this body.' },
       path: { type: 'array', required: true, items: { type: 'number' }, description: 'Sweep path as [x,y,z,…] triplets (≥6 numbers).' },
       name: { type: 'string', description: 'Optional display name.' },
     },
@@ -578,7 +886,11 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     async execute(args, exec: unknown) {
       await resolveDoc(exec)
       const bodyId = nextBodyId()
-      const op: ModelOp = { kind: 'sweep', bodyId, profile: args.profile, path: args.path, name: args.name }
+      const op: ModelOp = {
+        kind: 'sweep', bodyId,
+        ...(args.sketch !== undefined ? { sketch: String(args.sketch) } : { profile: args.profile }),
+        path: args.path, name: args.name,
+      }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
     },
@@ -593,6 +905,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       'Accepts the same curve-segment profiles as cad_extrude_profile (lines/arcs/bspline/circle), so rounded rims are exact. `angle` in degrees (default 360).',
     parameters: {
       profile: { type: 'json', required: true, description: 'Profile in (radius, height): flat [r0,h0, r1,h1,…] loop, {start, segments:[…]}, or {circle:{center,radius}}.' },
+      sketch: { type: 'string', description: 'Named sketch (cad_sketch_new) to revolve — replaces the inline profile; cad_sketch_edit rebuilds this body.' },
       angle: { type: 'number', description: 'Sweep angle in degrees (default 360).' },
       axis: { type: 'array', items: { type: 'number' }, description: 'Revolve axis direction [x,y,z] (default +Z).' },
       at: { type: 'array', items: { type: 'number' }, description: 'A point the axis passes through [x,y,z] (default origin).' },
@@ -616,7 +929,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
       await resolveDoc(exec)
       const bodyId = nextBodyId()
       const op: ModelOp = {
-        kind: 'revolve', bodyId, profile: args.profile,
+        kind: 'revolve', bodyId,
+        ...(args.sketch !== undefined ? { sketch: String(args.sketch) } : { profile: args.profile }),
         ...(args.angle !== undefined ? { angle: (args.angle * Math.PI) / 180 } : {}),
         ...(Array.isArray(args.axis) ? { axis: args.axis as [number, number, number] } : {}),
         ...(Array.isArray(args.at) ? { at: args.at as [number, number, number] } : {}),
@@ -1447,6 +1761,10 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
   return [
     cadCreatePrim,
+    cadSketchNew,
+    cadSketchEdit,
+    cadSketchList,
+    cadSketchDelete,
     cadExtrude,
     cadRevolve,
     cadChamfer,
@@ -1476,6 +1794,10 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
 export const MODEL_TOOL_NAMES = [
   'cad_create_prim',
+  'cad_sketch_new',
+  'cad_sketch_edit',
+  'cad_sketch_list',
+  'cad_sketch_delete',
   'cad_extrude_profile',
   'cad_revolve',
   'cad_chamfer',

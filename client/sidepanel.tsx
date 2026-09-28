@@ -20,6 +20,7 @@ import { mountCadEditor3D } from './viewer3d.js'
 import { readKind, readLatest, subscribeLatest, useScene, Viewport } from './viewport.js'
 import type { DocKind } from './viewport.js'
 import { AssemblyTree, useAssemblyTree } from './assembly-tree.js'
+import { FeatureTree, useFeatureTree } from './feature-tree.js'
 
 // ── harness services (structural, defensive) ────────────────────────────────
 
@@ -707,13 +708,37 @@ function useCenterColumnYield(
 
 // ── tab bodies ───────────────────────────────────────────────────────────────
 
-/** 零件 (Part Studio): an empty editor before any model, then live tracking.
+/** 零件 (Part Studio): an empty editor before any model, then live tracking
+ * with the feature tree (sketches + features, eye toggles) floating over it.
  * A document picked in the file list overrides the tab until the session
  * produces a new CAD result (auto-return to live tracking). */
 function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   const preview = usePreviewDoc()
   const live = useScene(meta?.sceneUrl)
   const previewScene = useScene(preview?.sceneUrl)
+
+  // The part scene's viewId IS the document id; the scene URL's ?v= is the
+  // document version, so the feature tree refetches exactly when the
+  // document changes (any modeling op, cad_sketch_edit included).
+  const docId = meta?.viewId ?? null
+  const version = useMemo(() => {
+    const match = /[?&]v=(\d+)/.exec(meta?.sceneUrl ?? '')
+    return match === null ? 0 : Number(match[1])
+  }, [meta?.sceneUrl])
+  const { tree } = useFeatureTree(docId, version)
+  const [treeOpen, setTreeOpen] = useState(true)
+  /** The highlighted body's mesh name (tree ↔ viewport selection). */
+  const [selected, setSelected] = useState<string | null>(null)
+  /** Mesh names hidden via the tree's eye toggles (bodies + sketch wires). */
+  const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set())
+  const hiddenList = useMemo(() => [...hidden], [hidden])
+
+  // Drop the selection/visibility when switching documents — names belong to
+  // one document.
+  useEffect(() => {
+    setSelected(null)
+    setHidden(new Set())
+  }, [docId])
 
   useEffect(() => {
     if (meta !== null && previewSnapshot !== null) setPreviewDoc(null)
@@ -734,8 +759,42 @@ function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   }
   if (meta === null) return <EmptyPartStudio />
   return (
-    <div style={panelStyles.sceneFill}>
-      <Viewport scene={live.scene} error={live.error} fill />
+    <div style={panelStyles.assemblyStage}>
+      <div style={panelStyles.sceneFill}>
+        <Viewport scene={live.scene} error={live.error} fill highlight={selected} hidden={hiddenList} />
+      </div>
+      {treeOpen ? (
+        <div style={panelStyles.treeFloat}>
+          <FeatureTree
+            tree={tree}
+            selected={selected}
+            onSelect={setSelected}
+            hidden={hidden}
+            onToggleHidden={(names) => {
+              setHidden((previous) => {
+                const next = new Set(previous)
+                const allHidden = names.every((name) => next.has(name))
+                for (const name of names) {
+                  if (allHidden) next.delete(name)
+                  else next.add(name)
+                }
+                return next
+              })
+            }}
+            onCollapse={() => { setTreeOpen(false) }}
+          />
+        </div>
+      ) : (
+        <button
+          type="button"
+          style={panelStyles.treeRail}
+          onClick={() => { setTreeOpen(true) }}
+          aria-label="展开特征树"
+          title="展开特征树"
+        >
+          ›
+        </button>
+      )}
     </div>
   )
 }

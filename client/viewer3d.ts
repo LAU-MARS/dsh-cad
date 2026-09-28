@@ -234,7 +234,79 @@ function applyRenderMode(root: THREE.Object3D, mode: RenderMode): void {
 /** Build one Three.js mesh; positions/normals/indices may be base64 or
  *  already-decoded typed arrays (the binary transport path), or a ready-made
  *  geometry (the built-in demo part). */
-function buildMesh(mesh: CadMesh | { name: string; color?: number; positions: Float32Array; normals?: Float32Array; indices: Uint32Array } | { name: string; color?: number; geometry: THREE.BufferGeometry }): THREE.Mesh {
+/** Round dot texture for sketch vertex points (PointsMaterial defaults to squares). */
+let circleDotTexture: THREE.Texture | null = null
+function circleDot(): THREE.Texture {
+  if (circleDotTexture !== null) return circleDotTexture
+  const canvas = document.createElement('canvas')
+  canvas.width = 32
+  canvas.height = 32
+  const ctx = canvas.getContext('2d')
+  if (ctx !== null) {
+    ctx.fillStyle = '#ffffff'
+    ctx.beginPath()
+    ctx.arc(16, 16, 14, 0, Math.PI * 2)
+    ctx.fill()
+  }
+  circleDotTexture = new THREE.CanvasTexture(canvas)
+  return circleDotTexture
+}
+
+function buildMesh(mesh: CadMesh | { name: string; color?: number; mode?: 'wire' | 'fill' | 'points'; positions: Float32Array; normals?: Float32Array; indices: Uint32Array } | { name: string; color?: number; geometry: THREE.BufferGeometry }): THREE.Object3D {
+  const decoded = 'mode' in mesh ? (mesh as { mode?: 'wire' | 'fill' | 'points' }).mode : undefined
+  if (decoded === 'wire') {
+    // Sketch display wire: the indices are a LINES list, not triangles.
+    const geometry = new THREE.BufferGeometry()
+    const positions = typeof (mesh as { positions: unknown }).positions === 'string' ? decodeF32((mesh as { positions: string }).positions) : (mesh as { positions: Float32Array }).positions
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    const indices = typeof (mesh as { indices: unknown }).indices === 'string' ? decodeU32((mesh as { indices: string }).indices) : (mesh as { indices: Uint32Array }).indices
+    geometry.setIndex(new THREE.BufferAttribute(indices, 1))
+    const lines = new THREE.LineSegments(geometry, new THREE.LineBasicMaterial({
+      color: (mesh as { color?: number }).color ?? 0x2f80d6,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.95,
+    }))
+    // Above the fill (1), below the dots/picking overlays (3).
+    lines.renderOrder = 2
+    lines.name = (mesh as { name?: string }).name ?? ''
+    return lines
+  }
+  if (decoded === 'fill') {
+    // Sketch enclosed region: a lighter, translucent double-sided face.
+    const geometry = new THREE.BufferGeometry()
+    const positions = (mesh as { positions: Float32Array }).positions
+    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+    geometry.setIndex(new THREE.BufferAttribute((mesh as { indices: Uint32Array }).indices, 1))
+    geometry.computeVertexNormals()
+    const region = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({
+      color: (mesh as { color?: number }).color ?? 0x74a9e0,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    }))
+    region.renderOrder = 1
+    region.name = (mesh as { name?: string }).name ?? ''
+    return region
+  }
+  if (decoded === 'points') {
+    // Sketch TRUE vertex dots: round (alpha-masked), screen-constant size.
+    const geometry = new THREE.BufferGeometry()
+    geometry.setAttribute('position', new THREE.BufferAttribute((mesh as { positions: Float32Array }).positions, 3))
+    const dots = new THREE.Points(geometry, new THREE.PointsMaterial({
+      color: (mesh as { color?: number }).color ?? 0x1c5fa8,
+      map: circleDot(),
+      size: 8,
+      sizeAttenuation: false,
+      alphaTest: 0.5,
+      transparent: true,
+      depthTest: false,
+    }))
+    dots.renderOrder = 3
+    dots.name = (mesh as { name?: string }).name ?? ''
+    return dots
+  }
   const geometry = 'geometry' in mesh
     ? mesh.geometry
     : (() => {

@@ -52,6 +52,20 @@ let nextBodyNumber = 1
 /** instanceId → { instanceId, bodyId, name, translate, rotate } — the assembly. */
 const instances = new Map()
 
+/** sketchName → { name, profile } — named, editable profiles (Sketch1…).
+ * Features reference sketches BY NAME (extrude/revolve/sweep `sketch` param);
+ * the profile is resolved at execution time, so a redefined sketch (the
+ * document op is rewritten in place + the log replayed) rebuilds every
+ * dependent feature. */
+const sketches = new Map()
+
+/** Resolve a named sketch's profile for a referencing feature op. */
+function requireSketch(name, what) {
+  const sketch = sketches.get(name)
+  if (sketch === undefined) throw new Error(`unknown sketch: ${name} — create it first (${what} references it by name)`)
+  return sketch.profile
+}
+
 const triplet = (value) => (Array.isArray(value) && value.length === 3 ? value : [0, 0, 0])
 
 function instancesList() {
@@ -92,15 +106,16 @@ async function applyOp(op) {
     case 'extrude_profile': {
       const bodyId = op.bodyId
       // `profile` (segments/circle object) supersedes the legacy flat `points`;
-      // both forms flow through the same curve-aware builder.
-      const profile = op.profile ?? op.points
+      // both forms flow through the same curve-aware builder. A named sketch
+      // (`sketch`) supersedes both — the profile resolves at execution time.
+      const profile = op.sketch !== undefined ? requireSketch(op.sketch, 'extrude_profile') : (op.profile ?? op.points)
       const shape = adapter.extrudeProfile2D(profile, op.height ?? 10, op.base ?? 0)
       bodies.set(bodyId, { shape, name: op.name ?? bodyId })
       return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
     }
     case 'revolve': {
       const bodyId = op.bodyId
-      const shape = adapter.makeRevolve(op.profile, { axis: op.axis, at: op.at, angle: op.angle })
+      const shape = adapter.makeRevolve(op.sketch !== undefined ? requireSketch(op.sketch, 'revolve') : op.profile, { axis: op.axis, at: op.at, angle: op.angle })
       assertUsable(shape, 'revolve', '检查轮廓是否全部位于轴的一侧且共面')
       bodies.set(bodyId, { shape, name: op.name ?? bodyId })
       return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
@@ -155,7 +170,7 @@ async function applyOp(op) {
     }
     case 'sweep': {
       const bodyId = op.bodyId
-      const shape = adapter.makeSweep(op.profile, op.path)
+      const shape = adapter.makeSweep(op.sketch !== undefined ? requireSketch(op.sketch, 'sweep') : op.profile, op.path)
       assertUsable(shape, 'sweep', '路径上的尖角配合较大截面会自交——把拐角改为圆滑/倒角路径')
       bodies.set(bodyId, { shape, name: op.name ?? bodyId })
       return { bodyId, name: bodies.get(bodyId).name, mesh: meshOf(shape, bodies.get(bodyId).name) }
@@ -254,6 +269,35 @@ async function applyOp(op) {
       // is solved on the main thread (Ansatz wasm); the worker stores nothing.
       return { stored: true, entities: op.model.entities.length, constraints: op.model.constraints.length }
     }
+    case 'sketch_set': {
+      if (op.profile === undefined || op.profile === null) throw new Error('a sketch needs a profile (segments object, circle object, or flat points loop)')
+      // Display payload for the viewport (visualization-only; nulls when the
+      // profile is not discretizable or the backend lacks the helpers).
+      let wire = null
+      let points = null
+      let fill = null
+      if (typeof adapter.sketchWirePoints === 'function') {
+        const discretized = adapter.sketchWirePoints(op.profile)
+        if (discretized !== null) {
+          wire = discretized.polyline
+          points = discretized.vertices.length > 0 ? discretized.vertices : null
+        }
+      }
+      if (typeof adapter.sketchFaceMesh === 'function') {
+        fill = adapter.sketchFaceMesh(op.profile)
+      }
+      sketches.set(op.name, { name: op.name, profile: op.profile })
+      return {
+        sketch: op.name,
+        ...(wire === null ? {} : { wire }),
+        ...(points === null ? {} : { points }),
+        ...(fill === null ? {} : { fill }),
+      }
+    }
+    case 'sketch_delete': {
+      if (!sketches.delete(op.name)) throw new Error(`unknown sketch: ${op.name}`)
+      return { sketch: op.name, deleted: op.name }
+    }
     case 'export_assembly': {
       if (instances.size === 0) throw new Error('the assembly is empty')
       // Structured document export (occt.ts >= 0.7.0): one root product plus
@@ -314,6 +358,7 @@ async function applyOp(op) {
     case 'reset': {
       bodies.clear()
       instances.clear()
+      sketches.clear()
       nextBodyNumber = 1
       return { cleared: true }
     }

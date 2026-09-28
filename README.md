@@ -4,9 +4,10 @@
 
 [![homepage](https://img.shields.io/badge/homepage-dsh--cad-4D6BFE)](https://lau-mars.github.io/dsh-cad/)
 [![npm](https://img.shields.io/npm/v/dsh-cad)](https://www.npmjs.com/package/dsh-cad)
-[![dsh plugin](https://img.shields.io/badge/dsh-plugin-4D6BFE)](https://github.com/deepseek-ai/deepseek-harness)
+[![dsh](https://img.shields.io/npm/v/@deepseek-ai%2Fdsh?label=dsh)](https://www.npmjs.com/package/@deepseek-ai/dsh)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
-[![OCCT](https://img.shields.io/badge/kernel-OCCT-4D6BFE)](https://github.com/donalffons/opencascade.js)
+[![occt.ts](https://img.shields.io/npm/v/occt.ts)](https://www.npmjs.com/package/occt.ts)
+[![ansatz](https://img.shields.io/npm/v/ansatz-wasm?label=ansatz)](https://www.npmjs.com/package/ansatz-wasm)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4D6BFE)](./LICENSE)
 
 English | [简体中文](./README.zh-CN.md)
@@ -32,10 +33,11 @@ back — 2 solids, 3 products, 2 assembly usages, 1,125.00 mm³:
 
 | Capability | Description |
 | --- | --- |
-| ⚙️ Single-kernel architecture | **occt.ts as the primary modeling kernel** (true B-splines, native shell/draft, centroid); opencascade.js stays only as the fallback backend; the v0.8 "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
+| ⚙️ Single-kernel architecture | **occt.ts as the primary modeling kernel** (true B-splines, native shell/draft, centroid); opencascade.js stays only as the fallback backend; the old "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **shell**, **draft**, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation |
+| ✏️ Named sketches | Standalone named profiles (Sketch1…) kept in the document (`cad_sketch_new` / `edit` / `list` / `delete`); extrude/revolve/sweep reference them **by name**, and `cad_sketch_edit` rewrites the definition in place + replays the log, rebuilding every dependent feature — the parametric loop. Sketches render as Onshape-style **blue curves + plane frame** in the viewport (refreshing live on edit), listed in a left-side **feature tree** (sketches + features, eye-toggle visibility, click-to-highlight bodies) over the Part tab |
 | 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
 | 📁 Multi-document file space | Named documents per workspace (`.dsh-cad/docs/`), each session bound to its own active document — new sessions start empty instead of inheriting leftovers; a folder button in the panel lists every document (preview / delete), and `cad_doc_new` / `cad_doc_open` manage the modeling target from chat |
 | 📐 Engineering drawings | GB first-angle layout: front / top / left views + isometric, true OCCT hidden-line removal via the **occt.ts** kernel (an npm dependency, dashed); sheet frame, title block, overall dimensions, standard scale series; exports SVG / DXF |
@@ -61,10 +63,9 @@ The installer applies the bundled `cordis.patch.yml` (declared in the `dsh.bundl
 
 ### Version requirements
 
-- **Node.js** ≥ 22
-- **dsh CLI** (`@deepseek-ai/dsh`): this plugin is developed against **0.1.0-rc.7**
-  (minimum supported version, declared in the `engines` field of `package.json`);
-  recommended **≥ 0.1.1-rc.2** (verified 2026-08-31)
+- **Node.js** and **dsh CLI** (`@deepseek-ai/dsh`): minimum versions live in
+  the badge row above and the `engines` field of `package.json` — kept out of
+  the prose so they never go stale
 
 ### Install from source (dev mode)
 
@@ -73,7 +74,7 @@ git clone https://github.com/LAU-MARS/dsh-cad.git
 cd dsh-cad
 npm install && npm run build && npm test   # deps include occt.ts (true-HLR drawing kernel, ~20MB wasm)
 
-npm install -g @deepseek-ai/dsh@^0.1.1-rc.2 pnpm   # requires Node ≥ 22
+npm install -g @deepseek-ai/dsh pnpm
 dsh web                                  # let the first launch init the profile, then Ctrl-C
 
 dsh plugin --profile web add /path/to/dsh-cad
@@ -101,14 +102,18 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_view` | Open a CAD file and render an interactive viewer card |
 | `cad_info` | Read-only geometry metadata (format / counts / bounding box / units / layers) |
 | `cad_create_prim` | Primitives (mm, Z-up); `at` for placement, `axis` for orientation (exact axis-angle rotation) |
-| `cad_extrude_profile` | Extrude a closed XY-plane polygon along +Z into a solid |
+| `cad_sketch_new` | Create a named sketch (Sketch1…): {start, segments} / {circle} / flat points loop — referenced by name from the profile features |
+| `cad_sketch_edit` | Redefine a sketch (回改): the definition op is rewritten in place and the log replayed — every referencing feature rebuilds |
+| `cad_sketch_list` | List the document's sketches (name / form / size) |
+| `cad_sketch_delete` | Delete a sketch (refused while features still reference it) |
+| `cad_extrude_profile` | Extrude a closed XY-plane profile along +Z into a solid — inline points/segments/circle or a named sketch (`sketch`) |
 | `cad_loft` | Loft: skin a solid through successive closed sections (each a [x,y,z,…] loop in its own plane); sections may differ in shape and point count; `ruled` for straight sides |
-| `cad_revolve` | Solid of revolution: revolve a closed profile around an axis (profile coords = (radius, height); curve segments supported — rounded rims exact); optional `angle` |
+| `cad_revolve` | Solid of revolution: revolve a closed profile around an axis (profile coords = (radius, height); curve segments supported — rounded rims exact); optional `angle`; accepts a named sketch |
 | `cad_chamfer` | Chamfer: bevel every sharp edge with one equal distance (mm) |
 | `cad_pattern` | Pattern: linear (`delta` spacing) or circular (principal axis + `at` point + sweep angle); creates copy bodies, fuse afterwards for one body |
 | `cad_shell` | Shell: hollow to a wall thickness (inward, outer skin preserved); `open` lists outward normals of the faces to open (empty = sealed). Runs on the occt.ts kernel; the result is a HOSTED body |
 | `cad_draft` | Draft: tilt the walls `angle` degrees about a neutral plane (mold release); `direction` is the pull direction, walls auto-selected by default. Runs on the occt.ts kernel; the result is a HOSTED body |
-| `cad_sweep` | Sweep: pipe a closed 2D profile along a 3D [x,y,z,…] path; the profile is auto-placed on the start plane, so no manual orientation |
+| `cad_sweep` | Sweep: pipe a closed 2D profile along a 3D [x,y,z,…] path; the profile is auto-placed on the start plane, so no manual orientation; accepts a named sketch |
 | `cad_boolean` | fuse / cut / common (classic hole punching: plate cut cylinder) |
 | `cad_fillet` | Constant-radius fillet on all sharp edges |
 | `cad_transform` | Translate / Euler rotate / mirror |
@@ -168,7 +173,7 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
 ```
 
 - **Two workers**: import (occt-import-js, read-only STEP/IGES/BREP) and modeling
-  (opencascade.js 1.1.1, full OCCT) are separate, both lazily started; the `_N`
+  (opencascade.js, full OCCT) are separate, both lazily started; the `_N`
   suffix convention of embind overloaded constructors is wrapped in
   `src/modeling/occt-adapter.cjs` (all verified at runtime)
 - **Zero-copy pipeline**: modeling scenes use zero base64 / zero large JSON arrays /
@@ -183,9 +188,10 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   without MEMFS, tessellation with built-in feature-edge extraction, and a
   `hasError()`/`lastError()` error contract. Geometry crosses kernels as STEP
   bytes and the projected segments are remapped into the sheet frame. Kernel
-  dist resolution: `DSH_OCCTJS_DIST` env var → `node_modules/occt.ts/dist`
-  (npm, default) → `<repo>/../opencascade-ts/dist` (sibling checkout) → `vendor/`
-  → `node_modules/opencascade-ts`
+  dist resolution: `DSH_OCCTJS_DIST` env var → Node's own resolution of the
+  `occt.ts` dependency (walks up every parent node_modules — npm/yarn flat and
+  pnpm symlink layouts all hit) → `<repo>/../opencascade-ts/dist` (sibling
+  checkout) → `vendor/` → `node_modules/opencascade-ts`
 - **Constraint solving (Ansatz)**: the solver is the npm dependency
   **`ansatz-wasm`** (a wasm-bindgen build, single package ~538KB, zero deps) —
   installing dsh-cad pulls it automatically, and `npm install ansatz-wasm` alone
@@ -198,15 +204,15 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   exponential-map rotation, radians). Solver capability is staged
   (point-distance-to-origin today) — the plumbing contract is finished and needs
   no changes as it grows
-- **Single-kernel architecture (v0.9)**: the primary modeling kernel is now
-  **occt.ts >= 0.5.0** — primitives, curve-segment profiles (TRUE B-spline
+- **Single-kernel architecture**: the primary modeling kernel is
+  **occt.ts** — primitives, curve-segment profiles (TRUE B-spline
   interpolation), loft/sweep/revolve, booleans, fillet/chamfer, shell/draft,
   mirror (composed as scale(-1) + a π rotation) and centroid all live in one
   session; engineering-drawing HLR takes the shape directly (zero STEP hops);
-  editing after shelling is seamless (the v0.8 hosted-body seam is deleted).
+  editing after shelling is seamless (the old hosted-body seam is deleted).
   opencascade.js remains as the FALLBACK backend (auto-selected when occt.ts
   cannot load). Assembly STEP export writes a **structured document** (occt.ts
-  ≥ 0.7.0 `writeStepDocument`): one root product plus one named, placed child
+  `writeStepDocument`): one root product plus one named, placed child
   per instance — instance separation survives the file (STL stays a single
   fused mesh; the fallback backend also fuses). Instance separation stays in
   the assembly scene/document for the fuse paths.
@@ -218,7 +224,7 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
 ## Tests
 
 ```sh
-npm test                             # 41 tests: converters / modeling worker (exact volume assertions) / DCPRT round-trip / FreeCAD executor / image profiles / binary pipeline
+npm test                             # full suite: converters / modeling worker (exact volume assertions) / DCPRT round-trip / FreeCAD + Onshape executors / image profiles / binary pipeline / document persistence
 node test/m0-kernel-check.cjs        # OCCT kernel API smoke test
 node test/route-check.mjs            # JSON scene routing layer
 node test/visual/serve.mjs           # browser card/tab visual verification page (http://127.0.0.1:3987)

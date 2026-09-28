@@ -81,6 +81,22 @@ export class ModelDocument {
     await writeFile(this.file, JSON.stringify(this.doc))
   }
 
+  /**
+   * Replace the defining op of a named sketch IN PLACE (cad_sketch_edit).
+   * Replay order is preserved — the definition still precedes its consumers —
+   * so a full replay rebuilds every feature referencing the sketch with the
+   * new profile. Returns false when no sketch with that name exists.
+   */
+  async rewriteSketch(name: string, profile: unknown): Promise<boolean> {
+    const index = this.doc.ops.findIndex((op) => op.kind === 'sketch_set' && op.name === name)
+    if (index === -1) return false
+    this.doc.ops[index] = { kind: 'sketch_set', name, profile }
+    this.doc.version += 1
+    await mkdir(this.directory, { recursive: true })
+    await writeFile(this.file, JSON.stringify(this.doc))
+    return true
+  }
+
   /** Clear the document (cad_new / tests). */
   async clear(): Promise<void> {
     this.doc = { docId: randomUUID(), version: 0, ops: [], bodyNames: {} }

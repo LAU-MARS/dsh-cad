@@ -15,6 +15,7 @@ import type { SceneStore } from './store.js'
 import type { BinarySceneStore } from './modeling/bin-store.js'
 import type { DocumentRegistry } from './modeling/registry.js'
 import { assemblyTreePayload } from './modeling/assembly.js'
+import { featureTreePayload } from './modeling/feature-tree.js'
 import { convert } from './convert/index.js'
 
 export const SCENE_ROUTE_PATH = '/dsh-cad/scene'
@@ -23,6 +24,7 @@ export const DEMO_SCENE_ROUTE_PATH = '/dsh-cad/demo-scene'
 export const DOCS_ROUTE_PATH = '/dsh-cad/docs'
 export const DOCS_DELETE_ROUTE_PATH = '/dsh-cad/docs/delete'
 export const ASSEMBLY_ROUTE_PATH = '/dsh-cad/asm'
+export const FEATURE_TREE_ROUTE_PATH = '/dsh-cad/tree'
 
 /** The built-in demo examples (packaged as lib/demo-<part>.brep). */
 export const DEMO_PARTS = ['bracket', 'flange', 'shaft'] as const
@@ -289,3 +291,49 @@ export function registerAssemblyRoute(
 }
 
 export type { SceneRoute }
+
+/**
+ * Register the feature-tree route: GET /dsh-cad/tree/<docId> returns the Part
+ * tab's structure panel (sketches + features in op order), folded from the
+ * persisted op log — no worker round-trip, so it keeps serving after restarts
+ * and for non-active documents (same pattern as the assembly tree).
+ */
+export function registerFeatureTreeRoute(
+  server: { register: (route: SceneRoute) => () => void },
+  registry: DocumentRegistry,
+): () => void {
+  return server.register({
+    kind: 'prefix',
+    path: FEATURE_TREE_ROUTE_PATH,
+    handler: async (req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url ?? '/', 'http://localhost')
+      const segments = url.pathname.split('/').filter((segment) => segment !== '')
+      // ['/dsh-cad', 'tree', '<docId>'] → docId is the 3rd segment.
+      const docId = segments[2]
+      if (req.method !== 'GET' || docId === undefined) {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not found' }))
+        return
+      }
+      try {
+        const document = await registry.open(docId)
+        if (document === null) {
+          res.writeHead(404, { 'content-type': 'application/json' })
+          res.end(JSON.stringify({ error: `unknown document: ${docId}` }))
+          return
+        }
+        await document.restore()
+        const body = Buffer.from(JSON.stringify(featureTreePayload(document.doc)))
+        res.writeHead(200, {
+          'content-type': 'application/json',
+          'content-length': body.length,
+          'cache-control': 'no-store',
+        })
+        res.end(body)
+      } catch (cause: unknown) {
+        res.writeHead(500, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) }))
+      }
+    },
+  })
+}

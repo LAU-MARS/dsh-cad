@@ -14,10 +14,13 @@
  * Resolution order for the dist directory (first hit wins):
  *   1. explicit `distDir` argument
  *   2. `DSH_OCCTJS_DIST` environment variable
- *   3. `<repo>/node_modules/occt.ts/dist`  — the npm package (default)
- *   4. `<repo>/../opencascade-ts/dist`     — sibling checkout (dev machines)
- *   5. `<repo>/vendor/opencascade-ts/dist`
- *   6. `<repo>/node_modules/opencascade-ts/dist`
+ *   3. Node's own resolution of the `occt.ts` dependency — walks up every
+ *      parent node_modules, so it finds the hoisted kernel under npm/yarn
+ *      flat installs and the symlinked one under pnpm, at any install depth
+ *   4. `<repo>/node_modules/occt.ts/dist`  — direct layout fallback
+ *   5. `<repo>/../opencascade-ts/dist`     — sibling checkout (dev machines)
+ *   6. `<repo>/vendor/opencascade-ts/dist`
+ *   7. `<repo>/node_modules/opencascade-ts/dist`
  *
  * `createOcctBridge()` resolves to null when no dist is found or init
  * fails — the drawing op then throws (engineering drawings require this
@@ -35,11 +38,25 @@ const norm = (v) => {
 const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 
+/**
+ * The occt.ts dist directory via Node's resolver: the "." export points into
+ * dist (dist/index.js), so its dirname IS the dist directory — wherever the
+ * package root actually sits in the consumer's node_modules layout.
+ */
+function occtDistViaNodeResolution() {
+  try {
+    return path.dirname(require.resolve('occt.ts'))
+  } catch {
+    return null
+  }
+}
+
 function resolveDistDir(explicit) {
   const repoRoot = path.resolve(__dirname, '..', '..')
   const candidates = [
     explicit,
     process.env.DSH_OCCTJS_DIST,
+    occtDistViaNodeResolution(),
     path.join(repoRoot, 'node_modules', 'occt.ts', 'dist'),
     path.join(repoRoot, '..', 'opencascade-ts', 'dist'),
     path.join(repoRoot, 'vendor', 'opencascade-ts', 'dist'),

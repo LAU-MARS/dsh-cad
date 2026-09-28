@@ -52,6 +52,14 @@ export interface OpResult {
   instances?: AssemblyInstance[]
   /** Pattern op: the newly created copy bodies with their meshes. */
   created?: Array<{ bodyId: string; name?: string; mesh?: WorkerMesh }>
+  /** Name of the sketch touched by a sketch op. */
+  sketch?: string
+  /** Flat [x,y,z,…] display polyline of the sketch (sketch_set; occt.ts backend). */
+  wire?: number[]
+  /** Flat [x,y,z,…] TRUE vertex points of the sketch (corners/ends; circles carry none). */
+  points?: number[]
+  /** Triangulated enclosed region { positions, indices } (the translucent fill). */
+  fill?: { positions: number[]; indices: number[] }
 }
 
 export interface DrawingViewSpec {
@@ -62,14 +70,14 @@ export interface DrawingViewSpec {
 
 export type ModelOp =
   | { kind: 'create_prim'; bodyId: string; prim: string; params?: Record<string, unknown>; name?: string }
-  | { kind: 'extrude_profile'; bodyId: string; points?: number[]; profile?: unknown; height?: number; base?: number; name?: string }
+  | { kind: 'extrude_profile'; bodyId: string; points?: number[]; profile?: unknown; sketch?: string; height?: number; base?: number; name?: string }
   | { kind: 'loft'; bodyId: string; sections: number[][]; solid?: boolean; ruled?: boolean; name?: string }
-  | { kind: 'revolve'; bodyId: string; profile: unknown; angle?: number; axis?: [number, number, number]; at?: [number, number, number]; name?: string }
+  | { kind: 'revolve'; bodyId: string; profile?: unknown; sketch?: string; angle?: number; axis?: [number, number, number]; at?: [number, number, number]; name?: string }
   | { kind: 'chamfer'; target: string; distance: number }
   | { kind: 'shell'; target: string; thickness: number; openNormals?: Array<[number, number, number]>; faces?: number[] }
   | { kind: 'draft'; target: string; angle: number; direction?: [number, number, number]; faces?: number[] }
   | { kind: 'pattern'; target: string; mode: 'linear' | 'circular'; count: number; delta?: [number, number, number]; axis?: [number, number, number]; at?: [number, number, number]; angle?: number }
-  | { kind: 'sweep'; bodyId: string; profile: unknown; path: number[]; name?: string }
+  | { kind: 'sweep'; bodyId: string; profile?: unknown; sketch?: string; path: number[]; name?: string }
   | { kind: 'boolean'; op: 'fuse' | 'cut' | 'common'; target: string; tools: string[] }
   | { kind: 'fillet'; target: string; radius: number }
   | { kind: 'transform'; target: string; translate?: [number, number, number]; rotate?: [number, number, number]; mirror?: [number, number, number] }
@@ -85,6 +93,8 @@ export type ModelOp =
   | { kind: 'assembly_list' }
   | { kind: 'constraints'; model: { entities: unknown[]; constraints: unknown[] } }
   | { kind: 'export_assembly'; format: 'step' | 'stl' }
+  | { kind: 'sketch_set'; name: string; profile: unknown }
+  | { kind: 'sketch_delete'; name: string }
 
 interface Pending {
   resolve: (result: OpResult) => void

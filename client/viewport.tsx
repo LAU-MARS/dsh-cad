@@ -79,7 +79,7 @@ export function readMeta(block: { meta?: unknown }): CadViewMeta | null {
 export interface BinaryScene3D {
   kind: '3d'
   format: string
-  meshes: Array<{ name: string; color?: number; positions: Float32Array; normals?: Float32Array; indices: Uint32Array; vertexCount: number; triangleCount: number }>
+  meshes: Array<{ name: string; color?: number; mode?: 'wire' | 'fill' | 'points'; positions: Float32Array; normals?: Float32Array; indices: Uint32Array; vertexCount: number; triangleCount: number }>
   bounds: { min: { x: number; y: number; z: number }; max: { x: number; y: number; z: number } }
   units: string
 }
@@ -87,6 +87,7 @@ export interface BinaryScene3D {
 interface BinMeshDesc2 {
   name: string
   color?: number
+  mode?: 'wire' | 'fill' | 'points'
   vertexCount: number
   triangleCount: number
   posOffset: number
@@ -114,6 +115,7 @@ export function decodeBinaryScene(buffer: ArrayBuffer): BinaryScene3D {
   const meshes = header.meshes.map((desc) => ({
     name: desc.name,
     ...(desc.color === undefined ? {} : { color: desc.color }),
+    ...(desc.mode === undefined ? {} : { mode: desc.mode }),
     positions: new Float32Array(buffer, payloadStart + desc.posOffset, desc.posBytes / 4),
     ...(desc.nrmOffset === undefined ? {} : { normals: new Float32Array(buffer, payloadStart + desc.nrmOffset, (desc.nrmBytes ?? 0) / 4) }),
     indices: new Uint32Array(buffer, payloadStart + desc.idxOffset, desc.idxBytes / 4),

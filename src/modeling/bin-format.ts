@@ -15,6 +15,8 @@
 export interface BinMeshDesc {
   name: string
   color?: number
+  /** 'wire' → LINES list, 'fill' → translucent region, 'points' → vertex dots. */
+  mode?: 'wire' | 'fill' | 'points'
   vertexCount: number
   triangleCount: number
   posOffset: number
@@ -34,6 +36,8 @@ export interface BinHeader {
 export interface BinMeshData {
   name: string
   color?: number
+  /** 'wire' → LINES list, 'fill' → translucent region, 'points' → vertex dots. */
+  mode?: 'wire' | 'fill' | 'points'
   positions: Float32Array
   normals?: Float32Array
   indices: Uint32Array
@@ -56,6 +60,7 @@ export function packBinaryScene(meshes: BinMeshData[]): Buffer {
     const desc: BinMeshDesc = {
       name: mesh.name,
       ...(mesh.color === undefined ? {} : { color: mesh.color }),
+      ...(mesh.mode === undefined ? {} : { mode: mesh.mode }),
       vertexCount: mesh.positions.length / 3,
       triangleCount: mesh.indices.length / 3,
       posOffset: payloadBytes,
