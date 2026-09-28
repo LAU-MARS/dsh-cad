@@ -55,6 +55,14 @@ web profile 通过 `"dsh-cad": "link:/Users/kane/work/dsh-cad"` 链接本仓库
 （见 `~/.dsh/profiles/web/package.json`）。dsh 加载的是 **`lib/` 构建产物**，
 不是 `src/`——pull 或改码后不跑 `npm run build`，页面跑的还是旧代码。
 
+### 2b. lib/ 已提交入库（v0.12.2 起）——发布前必须重建并提交
+
+dsh 插件管理器从 **git 仓库 URL** 安装（`pnpm add https://github.com/...`），
+而 pnpm 10+/11 默认拦截依赖的构建脚本（allowBuilds），`prepare` 钩子行不通。
+因此 `lib/` 构建产物**直接提交进仓库**（.gitignore 不再忽略），git 安装开箱
+即用。**每次发布：`npm run build` → 连同 lib/ 一起提交 → 打 tag / publish。**
+改了 `src/` 或 `client/` 却没重新构建提交 lib/，git 安装的用户跑的就是旧代码。
+
 ### 3. 端口 3080 被旧实例占用（EADDRINUSE）
 
 `dsh web` 监听 `127.0.0.1:3080`。之前启动的实例可能一直挂着（本次遇到一个
