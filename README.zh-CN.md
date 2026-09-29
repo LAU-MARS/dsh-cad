@@ -4,6 +4,7 @@
 
 [![homepage](https://img.shields.io/badge/homepage-dsh--cad-4D6BFE)](https://lau-mars.github.io/dsh-cad/)
 [![npm](https://img.shields.io/npm/v/dsh-cad)](https://www.npmjs.com/package/dsh-cad)
+[![downloads](https://img.shields.io/npm/dm/dsh-cad)](https://www.npmjs.com/package/dsh-cad)
 [![dsh](https://img.shields.io/npm/v/@deepseek-ai%2Fdsh?label=dsh)](https://www.npmjs.com/package/@deepseek-ai/dsh)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
 [![occt.ts](https://img.shields.io/npm/v/occt.ts)](https://www.npmjs.com/package/occt.ts)
