@@ -12,6 +12,7 @@ const { parentPort } = require('node:worker_threads')
 const path = require('node:path')
 const fs = require('node:fs')
 const { createRequire } = require('node:module')
+const { pathToFileURL } = require('node:url')
 const { createAdapter } = require('./occt-adapter.cjs')
 const { createOcctTsAdapter } = require('./occtts-adapter.cjs')
 const { createOcctBridge, loadSharedOcctModule } = require('./occt-bridge.cjs')
@@ -19,10 +20,6 @@ const { createOcctBridge, loadSharedOcctModule } = require('./occt-bridge.cjs')
 const require3 = createRequire(__filename)
 // The ES6 emscripten build reads a global __dirname when its factory runs.
 if (typeof globalThis.__dirname === 'undefined') globalThis.__dirname = __dirname
-
-const loaderPath = require3.resolve('opencascade.js/dist/opencascade.wasm.js')
-const loaderModule = require3(loaderPath)
-const wasmBinary = fs.readFileSync(path.join(path.dirname(loaderPath), 'opencascade.wasm.wasm'))
 
 // Kernel selection: occt.ts is the PRIMARY backend (single-kernel modeling,
 // true B-splines, shell/draft native, direct HLR); opencascade.js stays as
@@ -455,6 +452,15 @@ async function boot() {
     kernelName = 'occt.ts'
   } else {
     console.warn('[dsh-cad] occt.ts unavailable — falling back to the opencascade.js backend')
+    // Load the fallback kernel lazily: a top-level require() of the
+    // emscripten loader crashes the whole worker at module scope when the
+    // resolved opencascade.js build is ESM (ERR_REQUIRE_ESM) — boot() never
+    // runs and the main thread hangs waiting for ready. Dynamic import()
+    // accepts both module formats and confines a broken fallback build to
+    // this branch (surfaced as a clean init error via boot().catch).
+    const loaderPath = require3.resolve('opencascade.js/dist/opencascade.wasm.js')
+    const loaderModule = await import(pathToFileURL(loaderPath).href)
+    const wasmBinary = fs.readFileSync(path.join(path.dirname(loaderPath), 'opencascade.wasm.wasm'))
     const initOpenCascade = loaderModule.default ?? loaderModule
     occt = await initOpenCascade({ wasmBinary })
     adapter = createAdapter(occt)
