@@ -53,6 +53,30 @@ export function CadCard({ block }: CadCardProps): JSX.Element {
   )
 }
 
+/**
+ * Compact one-line stand-in for the inline viewport: the resident side panel
+ * is the single CAD display area, so the chat row only records what the call
+ * produced. Still feeds the panel's latest-model memory — it is the panel's
+ * fallback channel on hosts without the sessions service.
+ */
+export function CadCallRow({ block }: CadCardProps): JSX.Element {
+  const running = block.kind === 'tool-call'
+  const meta = running ? undefined : (readMeta(block) ?? undefined)
+
+  if (meta !== undefined) rememberLatest(meta)
+
+  if (meta === undefined) {
+    return <div style={styles.placeholder}>{running ? 'Converting CAD…' : 'CAD result'}</div>
+  }
+  return (
+    <div style={rowStyles.row}>
+      <span style={rowStyles.title}>{meta.title}</span>
+      <span style={rowStyles.stats}>{statsLine(meta)}</span>
+      <span style={rowStyles.hint}>在右侧 CAD 面板查看</span>
+    </div>
+  )
+}
+
 function statsLine(meta: CadViewMeta): string {
   if (meta.kind === '3d') {
     const parts: string[] = []
@@ -106,5 +130,27 @@ const cardStyles: Record<string, React.CSSProperties> = {
     color: 'var(--dsw-alias-label-tertiary, #6b7280)',
     fontSize: 11,
     padding: '5px 12px',
+  },
+}
+
+const rowStyles: Record<string, React.CSSProperties> = {
+  row: {
+    display: 'flex',
+    alignItems: 'baseline',
+    gap: 10,
+    margin: '4px 0',
+    padding: '6px 12px',
+    border: '1px solid var(--dsw-alias-border-l1, #d7dbe0)',
+    borderRadius: 8,
+    maxWidth: 720,
+    background: 'var(--dsw-alias-bg-subtle, #f7f8fa)',
+  },
+  title: { fontWeight: 600, fontSize: 12.5 },
+  stats: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary, #6b7280)' },
+  hint: {
+    marginLeft: 'auto',
+    fontSize: 11,
+    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
+    whiteSpace: 'nowrap',
   },
 }

@@ -35,7 +35,7 @@ back — 2 solids, 3 products, 2 assembly usages, 1,125.00 mm³:
 | Capability | Description |
 | --- | --- |
 | ⚙️ Single-kernel architecture | **occt.ts as the primary modeling kernel** (true B-splines, native shell/draft, centroid); opencascade.js stays only as the fallback backend; the old "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
-| 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive in-chat card (orbit / zoom / wireframe / pan) |
+| 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive viewport in the resident right panel (orbit / zoom / wireframe / pan), with a one-line result row in the conversation |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **shell**, **draft**, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation |
 | ✏️ Named sketches | Standalone named profiles (Sketch1…) kept in the document (`cad_sketch_new` / `edit` / `list` / `delete`); extrude/revolve/sweep reference them **by name**, and `cad_sketch_edit` rewrites the definition in place + replays the log, rebuilding every dependent feature — the parametric loop. Sketches render as Onshape-style **blue curves + plane frame** in the viewport (refreshing live on edit), listed in a left-side **feature tree** (sketches + features, eye-toggle visibility, click-to-highlight bodies) over the Part tab |
@@ -100,7 +100,7 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 
 | Tool | Description |
 | --- | --- |
-| `cad_view` | Open a CAD file and render an interactive viewer card |
+| `cad_view` | Open a CAD file and render it in the viewer (resident panel) |
 | `cad_info` | Read-only geometry metadata (format / counts / bounding box / units / layers) |
 | `cad_create_prim` | Primitives (mm, Z-up); `at` for placement, `axis` for orientation (exact axis-angle rotation) |
 | `cad_sketch_new` | Create a named sketch (Sketch1…): {start, segments} / {circle} / flat points loop — referenced by name from the profile features |
@@ -137,9 +137,10 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_fusion` | Run an op program on an external Fusion 360 executor (GUI bridge; optional export) |
 | `cad_onshape` | Run an op program on the Onshape cloud (signed REST API): creates or drives a document, returns its URL; `readback: "step"` for exact BRep meshes; exports `.stl` / `.step` / `.x_t` (Parasolid) |
 | `cad_image_profile` | PNG → contours → extrusion-ready polygon points |
+| `cad_script` | Deterministic script evaluation for geometry math (profile point arrays, arc coordinates): `js` runs in-process (Node vm — works even when the host shell is unavailable), `py` uses a system Python |
 
-After every modeling step: **the same viewer card refreshes in place** (stable viewId +
-versioned URL), and the "3D" tab tracks the latest model in real time.
+After every modeling step: **the chat result row updates in place** (stable viewId +
+versioned URL), and the resident panel's "Part" tab tracks the latest model in real time.
 
 ## Connectors (roadmap)
 

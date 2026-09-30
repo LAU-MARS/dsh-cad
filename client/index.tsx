@@ -1,7 +1,8 @@
 /**
  * dsh-cad client plugin:
- * - the cad_* tool-view cards in the chat flow (inline viewports; every settled
- *   card also feeds the latest-CAD memory);
+ * - compact one-line rows for the cad_* tool calls in the chat flow (the
+ *   resident panel is the single CAD display area; every settled row also
+ *   feeds the latest-CAD memory behind the panel's fallback channel);
  * - the resident CAD display panel docked to the right of the conversation
  *   (center) column via the additive `shell.overlay` seat: expanded by default
  *   from launch, an empty placeholder before any CAD modeling, then tracking
@@ -9,7 +10,7 @@
  *   (inline padding-right on the center column) instead of covering it.
  */
 import type { CadCardProps } from './card.js'
-import { CadCard } from './card.js'
+import { CadCallRow } from './card.js'
 import { makeCadSidePanel } from './sidepanel.js'
 import type { SessionsLike } from './sidepanel.js'
 
@@ -71,11 +72,11 @@ export function apply(ctx: ClientContext): void {
     } catch { /* non-DOM host */ }
   })
 
-  // Chat tool cards: keyed toolview entries (a keyed hit replaces the generic
+  // Chat tool rows: keyed toolview entries (a keyed hit replaces the generic
   // row). `locale` tags the entry for the conversation namespace's `t` seat.
   for (const key of CAD_TOOL_KEYS) {
     ctx.slots.inject('tool.call.toolview', () =>
-      ctx.slots.register({ name: 'tool.call.toolview', key, locale: 'conversation' }, CadCard as unknown as (props: never) => JSX.Element),
+      ctx.slots.register({ name: 'tool.call.toolview', key, locale: 'conversation' }, CadCallRow as unknown as (props: never) => JSX.Element),
     )
   }
 

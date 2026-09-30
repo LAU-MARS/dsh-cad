@@ -20,6 +20,7 @@ import { createFreeCadTool } from './tools/cad-freecad.js'
 import { createFusionTool } from './tools/cad-fusion.js'
 import { createOnshapeTool } from './tools/cad-onshape.js'
 import { createCadImageTool } from './tools/cad-image.js'
+import { createCadScriptTool } from './tools/cad-script.js'
 
 export const name = 'dsh-cad'
 
@@ -38,23 +39,37 @@ export function apply(ctx: Context, config: Config = {}): void {
   const registry = new DocumentRegistry(process.cwd())
   const workspaceRoot = process.cwd()
 
-  let routeRegistered = false
+  // The routes live on the host's shared webServer, which outlives this
+  // plugin instance: hosts that hot-reload (the desktop runtime) re-run
+  // apply() in the same process, and the server throws on duplicate
+  // (kind, path). Every register disposer must therefore run on disposal —
+  // leaking them makes the next apply() throw and breaks every
+  // viewer-dependent tool call until a process restart.
+  let routeDisposers: Array<() => void> = []
   /** Idempotently register the scene routes; returns the JSON base or null. */
   const ensureSceneRoute = (): string | null => {
-    if (routeRegistered) return '/dsh-cad/scene'
+    if (routeDisposers.length > 0) return '/dsh-cad/scene'
     const scope = ctx as { get?: (name: string) => unknown }
     const server = (scope.get?.('webServer') ?? scope.get?.('httpServer')) as
       | { register: (route: SceneRoute) => () => void }
       | undefined
     if (server === undefined) return null
-    registerSceneRoute(server, store)
-    registerBinRoute(server, binStore)
-    registerDemoRoute(server)
-    registerDocsRoute(server, registry, binStore)
-    registerDocsDeleteRoute(server, registry)
-    registerAssemblyRoute(server, registry)
-    registerFeatureTreeRoute(server, registry)
-    routeRegistered = true
+    const pending: Array<() => void> = []
+    try {
+      pending.push(registerSceneRoute(server, store))
+      pending.push(registerBinRoute(server, binStore))
+      pending.push(registerDemoRoute(server))
+      pending.push(registerDocsRoute(server, registry, binStore))
+      pending.push(registerDocsDeleteRoute(server, registry))
+      pending.push(registerAssemblyRoute(server, registry))
+      pending.push(registerFeatureTreeRoute(server, registry))
+    } catch (error) {
+      // Roll back the partial batch, or the next attempt trips the duplicate
+      // guard on the routes that did register.
+      for (const dispose of pending) dispose()
+      throw error
+    }
+    routeDisposers = pending
     return '/dsh-cad/scene'
   }
 
@@ -64,7 +79,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   // briefly; fiber ordering decides the exact moment.
   let attempts = 0
   const retry = setInterval(() => {
-    if (routeRegistered || ++attempts > 200) {
+    if (routeDisposers.length > 0 || ++attempts > 200) {
       clearInterval(retry)
       return
     }
@@ -87,6 +102,7 @@ export function apply(ctx: Context, config: Config = {}): void {
   const cadFusion = createFusionTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadOnshape = createOnshapeTool({ store: binStore, workspaceRoot, ensureSceneRoute })
   const cadImage = createCadImageTool({ store, workspaceRoot, ensureSceneRoute })
+  const cadScript = createCadScriptTool({ workspaceRoot })
 
   const disposers = [
     ctx.tools.register(cadView),
@@ -96,12 +112,15 @@ export function apply(ctx: Context, config: Config = {}): void {
     ctx.tools.register(cadFusion),
     ctx.tools.register(cadOnshape),
     ctx.tools.register(cadImage),
+    ctx.tools.register(cadScript),
   ]
 
   ctx.effect(() => {
     return () => {
       clearInterval(retry)
       for (const dispose of disposers) dispose()
+      for (const dispose of routeDisposers) dispose()
+      routeDisposers = []
     }
   })
 }

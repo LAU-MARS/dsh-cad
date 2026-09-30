@@ -947,8 +947,11 @@ function EmptyPartStudio(): JSX.Element {
 }
 
 const panelStyles: Record<string, React.CSSProperties> = {
-  // The overlay layer's direct children are pointer-auto; keep the full-size
-  // root see-through so only the panel/rail intercept clicks.
+  // Frameless desktop windows overlay a full-width drag strip
+  // (`-webkit-app-region: drag`, the [data-windows-titlebar] frame::before)
+  // across the top band. Chromium computes drag regions geometrically — not
+  // by z-order — so the strip swallows clicks meant for the tab row. no-drag
+  // on the panel subtracts its rect back out; inert in plain browsers.
   root: {
     position: 'absolute',
     inset: 0,
@@ -956,7 +959,12 @@ const panelStyles: Record<string, React.CSSProperties> = {
   },
   panel: {
     position: 'absolute',
-    top: 0,
+    // Clear the frameless desktop window's titlebar drag band: the shell sets
+    // --dsh-windows-titlebar-height inline on <html> only when the custom
+    // titlebar exists (browsers fall back to 0), and Chromium's drag region
+    // swallows clicks geometrically regardless of z-order — overlapping it
+    // made the whole tab strip dead on desktop.
+    top: 'var(--dsh-windows-titlebar-height, 0px)',
     bottom: 0,
     pointerEvents: 'auto',
     display: 'flex',
@@ -965,6 +973,7 @@ const panelStyles: Record<string, React.CSSProperties> = {
     background: 'var(--dsw-alias-bg-base, #fff)',
     borderLeft: '1px solid var(--dsw-alias-border-l2, #c4c9d0)',
     boxShadow: '-16px 0 28px -20px rgba(16,24,40,0.18)',
+    ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties),
   },
   resizer: {
     position: 'absolute',
@@ -1381,5 +1390,6 @@ const panelStyles: Record<string, React.CSSProperties> = {
     letterSpacing: '0.08em',
     cursor: 'pointer',
     boxShadow: '4px 4px 12px -6px rgba(16,24,40,0.2)',
+    ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties),
   },
 }

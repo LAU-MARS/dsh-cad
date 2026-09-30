@@ -193,7 +193,26 @@ export function registerDocsRoute(
             ...(await binStore.has(doc.id) ? { sceneUrl: `${BIN_ROUTE_PATH}/${doc.id}` } : {}),
           })),
         )
-        const body = Buffer.from(JSON.stringify({ docs: entries }))
+        // The panel's host-independent channel: with ?session=<id>, also
+        // report that session's bound (active) document and its versioned
+        // scene URL. The resident panel polls this when the conversation
+        // meta pipeline is unavailable (host version drift, cold start) —
+        // its own route keeps the Part tab live across host UI changes.
+        const sessionId = new URL(req.url ?? '/', 'http://localhost').searchParams.get('session')
+        let active: { id: string; name: string; version: number; sceneUrl?: string } | undefined
+        if (sessionId !== null) {
+          const bound = await registry.bindingOf(sessionId)
+          const doc = bound === null ? undefined : docs.find((entry) => entry.id === bound)
+          if (doc !== undefined) {
+            active = {
+              id: doc.id,
+              name: doc.name,
+              version: doc.opCount,
+              ...(await binStore.has(doc.id) ? { sceneUrl: `${BIN_ROUTE_PATH}/${doc.id}?v=${doc.opCount}` } : {}),
+            }
+          }
+        }
+        const body = Buffer.from(JSON.stringify({ docs: entries, ...(active !== undefined ? { active } : {}) }))
         res.writeHead(200, {
           'content-type': 'application/json',
           'content-length': body.length,
