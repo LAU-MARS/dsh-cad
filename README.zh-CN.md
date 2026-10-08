@@ -7,7 +7,8 @@
 [![downloads](https://img.shields.io/npm/dm/dsh-cad)](https://www.npmjs.com/package/dsh-cad)
 [![dsh](https://img.shields.io/npm/v/@deepseek-ai%2Fdsh?label=dsh)](https://www.npmjs.com/package/@deepseek-ai/dsh)
 [![Node](https://img.shields.io/badge/node-%3E%3D%2022-4D6BFE)](https://nodejs.org/)
-[![occt.ts](https://img.shields.io/npm/v/occt.ts)](https://www.npmjs.com/package/occt.ts)
+[![occt](https://img.shields.io/badge/occt-7.9.3-4D6BFE)](https://github.com/LAU-MARS/opencascade-ts)
+[![occt.ts](https://img.shields.io/npm/v/occt.ts?label=occt.ts)](https://www.npmjs.com/package/occt.ts)
 [![ansatz](https://img.shields.io/npm/v/ansatz-wasm?label=ansatz)](https://www.npmjs.com/package/ansatz-wasm)
 [![License: MIT](https://img.shields.io/badge/license-MIT-4D6BFE)](./LICENSE)
 
