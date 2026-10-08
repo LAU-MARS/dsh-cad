@@ -30,6 +30,12 @@ back — 2 solids, 3 products, 2 assembly usages, 1,125.00 mm³:
 
 ![dsh-cad assembly session](docs/img/assembly-preview.png)
 
+## Downloads
+
+Cumulative downloads from the npm registry, refreshed daily by CI:
+
+![npm cumulative downloads](docs/img/downloads-cumulative.svg)
+
 ## Feature Overview
 
 | Capability | Description |

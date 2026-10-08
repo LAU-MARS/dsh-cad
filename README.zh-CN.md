@@ -27,6 +27,12 @@
 
 ![dsh-cad 装配建模会话](docs/img/assembly-preview.png)
 
+## 下载量
+
+npm 官方源的累计下载量，由 CI 每日刷新：
+
+![npm 累计下载量](docs/img/downloads-cumulative.svg)
+
 ## 功能总览
 
 | 能力 | 说明 |
