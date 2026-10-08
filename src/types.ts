@@ -102,13 +102,20 @@ export interface CadStats {
 
 /** Flatten a converted scene into the model/card-facing summary. */
 export function sceneStats(scene: CadScene): CadStats {
+  // Tool output must round-trip lossless JSON: NaN/Infinity in source geometry
+  // (or a converter edge case) would make the registry reject the whole result
+  // — drop bounds containing non-finite numbers instead (issue #6).
+  const bounds = <N extends number[]>(min: N, max: N): { boundsMin?: N; boundsMax?: N } =>
+    [...min, ...max].every((value) => Number.isFinite(value)) ? { boundsMin: min, boundsMax: max } : {}
   if (scene.kind === '3d') {
     return {
       format: scene.format,
       meshes: scene.meshes.length,
       triangles: scene.meshes.reduce((sum, mesh) => sum + mesh.triangleCount, 0),
-      boundsMin: [scene.bounds.min.x, scene.bounds.min.y, scene.bounds.min.z],
-      boundsMax: [scene.bounds.max.x, scene.bounds.max.y, scene.bounds.max.z],
+      ...bounds(
+        [scene.bounds.min.x, scene.bounds.min.y, scene.bounds.min.z],
+        [scene.bounds.max.x, scene.bounds.max.y, scene.bounds.max.z],
+      ),
       units: scene.units,
     }
   }
@@ -116,7 +123,6 @@ export function sceneStats(scene: CadScene): CadStats {
     format: scene.format,
     entities: scene.entities.length,
     layers: scene.layers,
-    boundsMin: [scene.bounds.min.x, scene.bounds.min.y],
-    boundsMax: [scene.bounds.max.x, scene.bounds.max.y],
+    ...bounds([scene.bounds.min.x, scene.bounds.min.y], [scene.bounds.max.x, scene.bounds.max.y]),
   }
 }

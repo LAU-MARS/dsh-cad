@@ -127,6 +127,10 @@ export interface FoldedAssembly {
   instances: AssemblyInstance[]
   entities: ConstraintEntity[]
   constraints: ConstraintEntry[]
+  /** Body ids alive at the end of the log — the ground truth for "missing".
+   *  Folded from ops rather than read off bodyNames because documents written
+   *  before pattern copies were recorded have incomplete name maps. */
+  liveBodyIds: Set<string>
 }
 
 /**
@@ -138,8 +142,34 @@ export function foldAssemblyState(ops: ModelOp[], bodyNames: Record<string, stri
   const instances: AssemblyInstance[] = []
   let entities: ConstraintEntity[] = []
   let constraints: ConstraintEntry[] = []
+  const liveBodyIds = new Set<string>()
   for (const op of ops) {
     switch (op.kind) {
+      case 'create_prim':
+      case 'extrude_profile':
+      case 'loft':
+      case 'revolve':
+      case 'sweep':
+        liveBodyIds.add(op.bodyId)
+        break
+      case 'pattern': {
+        // Mirror the worker's unique-copy rule so replay-derived ids match
+        // (repeat patterns of the same target uniquify against live ids).
+        const count = Math.max(1, Math.trunc(op.count))
+        for (let i = 1; i < count; i++) {
+          let seq = i
+          let id = `${op.target}p${seq}`
+          while (liveBodyIds.has(id)) id = `${op.target}p${++seq}`
+          liveBodyIds.add(id)
+        }
+        break
+      }
+      case 'delete':
+        liveBodyIds.delete(op.target)
+        break
+      case 'boolean':
+        for (const tool of op.tools) liveBodyIds.delete(tool)
+        break
       case 'assembly_insert':
         instances.push({
           instanceId: op.instanceId,
@@ -171,7 +201,7 @@ export function foldAssemblyState(ops: ModelOp[], bodyNames: Record<string, stri
         break
     }
   }
-  return { instances, entities, constraints }
+  return { instances, entities, constraints, liveBodyIds }
 }
 
 /** One PARTS row of the assembly tree. */
@@ -204,7 +234,7 @@ export interface AssemblyTreePayload {
 
 /** Build the assembly-tree payload from a restored document. */
 export function assemblyTreePayload(doc: ModelDoc): AssemblyTreePayload {
-  const { instances, entities, constraints } = foldAssemblyState(doc.ops, doc.bodyNames)
+  const { instances, entities, constraints, liveBodyIds } = foldAssemblyState(doc.ops, doc.bodyNames)
   const names = assemblyDisplayNames(instances)
   const nameByInstanceId = new Map(instances.map((instance, index) => [instance.instanceId, names[index]!]))
   const entityName = (id: unknown): string | undefined => {
@@ -221,8 +251,11 @@ export function assemblyTreePayload(doc: ModelDoc): AssemblyTreePayload {
       bodyId: instance.bodyId,
       name: names[index]!,
       color: instanceColor(index),
-      // bodyNames tracks every live body (unnamed bodies record their id).
-      missing: doc.bodyNames[instance.bodyId] === undefined,
+      // Missing only when BOTH witnesses lack the body: liveBodyIds (folded
+      // from the op log — covers pattern copies in documents written before
+      // copy names were recorded, issue #6) and bodyNames (the recorded name
+      // manifest).
+      missing: !liveBodyIds.has(instance.bodyId) && doc.bodyNames[instance.bodyId] === undefined,
     })),
     constraints: constraints.map((constraint) => {
       const entry: AssemblyTreeConstraint = { id: constraint.id, type: String(constraint.kind.type ?? 'constraint') }

@@ -7,7 +7,7 @@ import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { detectFormat } from '../convert/detect.js'
 import { convert } from '../convert/index.js'
 import { sceneStats } from '../types.js'
-import { loadCadFile, resolveWorkspacePath } from './util.js'
+import { loadCadFile, resolveSessionPath } from './util.js'
 
 export interface CadInfoToolDeps {
   workspaceRoot: string
@@ -64,8 +64,8 @@ export function createCadInfoTool(deps: CadInfoToolDeps): ToolDefinition {
     },
     timeoutMs: 180_000,
     isConcurrencySafe: () => true,
-    async execute(args) {
-      const resolved = resolveWorkspacePath(args.path, deps.workspaceRoot)
+    async execute(args, exec: unknown) {
+      const resolved = resolveSessionPath(args.path, exec, deps.workspaceRoot)
       const name = resolved.split('/').pop() ?? resolved
       const format = detectFormat(name)
       if (format === null) {

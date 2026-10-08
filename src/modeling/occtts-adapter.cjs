@@ -349,6 +349,12 @@ function createOcctTsAdapter(mod) {
       }
       const next = mod.shell(shape, Math.abs(thickness), ptr, faces.length)
       if (next.isNull()) throw wrapError('shell', new Error('null shape'))
+      // The kernel can return the input unchanged on chamfered/tangent faces
+      // (issue #6) — an unchanged volume means the shell silently no-op'd;
+      // fail loudly with an actionable hint instead of reporting success.
+      if (Math.abs(next.volume() - shape.volume()) < 1e-6) {
+        throw wrapError('shell', new Error('kernel returned an unchanged solid — shell 未生效（倒角/相切面是已知诱因），请减小壁厚或先抽壳后倒角'))
+      }
       return next
     } finally {
       if (ptr !== 0) mod._free(ptr)
@@ -360,6 +366,10 @@ function createOcctTsAdapter(mod) {
     const d = direction ?? [0, 0, 1]
     const next = mod.draft(shape, (angleDegrees * Math.PI) / 180, d[0], d[1], d[2], 0, 0, 1, 0, 0, true)
     if (next.isNull()) throw wrapError('draft', new Error('null shape'))
+    // Same silent no-op guard as shell: unchanged volume = nothing happened.
+    if (Math.abs(next.volume() - shape.volume()) < 1e-6) {
+      throw wrapError('draft', new Error('kernel returned an unchanged solid — draft 未生效（没有可倾斜的壁面？），请检查拔模方向或改用显式面选择'))
+    }
     return next
   }
 

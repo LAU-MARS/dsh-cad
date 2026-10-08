@@ -62,11 +62,13 @@ export class ModelDocument {
     }
   }
 
-  /** Append an applied operation and persist. */
-  async record(op: ModelOp, bodyName: { bodyId: string; name: string } | null): Promise<void> {
+  /** Append an applied operation and persist. Multi-create ops (pattern)
+   *  pass an array so every copy's display name lands in bodyNames. */
+  async record(op: ModelOp, bodyName: { bodyId: string; name: string } | Array<{ bodyId: string; name: string }> | null): Promise<void> {
     this.doc.ops.push(op)
     this.doc.version += 1
-    if (bodyName !== null) this.doc.bodyNames[bodyName.bodyId] = bodyName.name
+    const entries = Array.isArray(bodyName) ? bodyName : bodyName === null ? [] : [bodyName]
+    for (const entry of entries) this.doc.bodyNames[entry.bodyId] = entry.name
     if (op.kind === 'delete' || op.kind === 'boolean') {
       const removed = op.kind === 'delete' ? [op.target] : op.tools
       for (const id of removed) delete this.doc.bodyNames[id]

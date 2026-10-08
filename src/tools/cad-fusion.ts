@@ -10,7 +10,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
 import type { BinMeshData } from '../modeling/bin-format.js'
-import { resolveWorkspacePath } from './util.js'
+import { resolveSessionPath } from './util.js'
 import { isKnownOpKind, normalizeOps } from '../cad_connector/executor.js'
 import { FUSION360_EXECUTOR } from '../cad_connector/fusion360-executor.js'
 
@@ -83,7 +83,7 @@ export function createFusionTool(deps: FusionToolDeps): ToolDefinition {
     },
     timeoutMs: 300_000,
     isConcurrencySafe: () => false,
-    async execute(args) {
+    async execute(args, exec: unknown) {
       if (!FUSION360_EXECUTOR.available()) {
         throw new Error(FUSION360_EXECUTOR.unavailableReason?.() ?? 'Fusion 360 is not available on this machine')
       }
@@ -104,7 +104,7 @@ export function createFusionTool(deps: FusionToolDeps): ToolDefinition {
 
       const program: Parameters<typeof FUSION360_EXECUTOR.run>[0] = { ops: steps, names, display: true }
       if (args.exportPath !== undefined) {
-        const resolved = resolveWorkspacePath(args.exportPath, deps.workspaceRoot)
+        const resolved = resolveSessionPath(args.exportPath, exec, deps.workspaceRoot)
         const extension = resolved.toLowerCase().split('.').pop() ?? ''
         if (extension !== 'step' && extension !== 'stp' && extension !== 'stl') {
           throw new Error(`exportPath must be .step or .stl (got .${extension})`)

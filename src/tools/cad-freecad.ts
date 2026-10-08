@@ -11,7 +11,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
 import type { BinMeshData } from '../modeling/bin-format.js'
-import { resolveWorkspacePath } from './util.js'
+import { resolveSessionPath } from './util.js'
 import { findFreeCad, runFreeCadProgram } from '../cad_connector/freecad-executor.js'
 import { isKnownOpKind, normalizeOps } from '../cad_connector/executor.js'
 
@@ -95,7 +95,7 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
     },
     timeoutMs: 300_000,
     isConcurrencySafe: () => false,
-    async execute(args) {
+    async execute(args, exec: unknown) {
       const executable = findFreeCad()
       if (executable === null) {
         throw new Error('FreeCAD was not found — install FreeCAD or point FREECAD_BIN at its console binary (freecadcmd)')
@@ -117,13 +117,13 @@ export function createFreeCadTool(deps: FreeCadToolDeps): ToolDefinition {
 
       const program: Parameters<typeof runFreeCadProgram>[0] = { ops: steps, names }
       if (args.input !== undefined) {
-        const resolved = resolveWorkspacePath(args.input, deps.workspaceRoot)
+        const resolved = resolveSessionPath(args.input, exec, deps.workspaceRoot)
         const extension = resolved.toLowerCase().split('.').pop() ?? ''
         if (!INPUT_EXTENSIONS.has(extension)) throw new Error(`input must be one of .step .stp .brep .stl (got .${extension})`)
         program.input = { format: extension as 'step' | 'stp' | 'brep' | 'stl', path: resolved, bodyId: 'input' }
       }
       if (args.exportPath !== undefined) {
-        const resolved = resolveWorkspacePath(args.exportPath, deps.workspaceRoot)
+        const resolved = resolveSessionPath(args.exportPath, exec, deps.workspaceRoot)
         const extension = resolved.toLowerCase().split('.').pop() ?? ''
         if (!EXPORT_EXTENSIONS.has(extension)) throw new Error(`exportPath must be .step or .stl (got .${extension})`)
         program.export = { format: extension as 'step' | 'stp' | 'stl', path: resolved }

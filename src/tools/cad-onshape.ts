@@ -12,7 +12,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
 import type { BinMeshData } from '../modeling/bin-format.js'
-import { resolveWorkspacePath } from './util.js'
+import { resolveSessionPath } from './util.js'
 import { onshapeAvailable, onshapeUnavailableReason, runOnshapeProgram } from '../cad_connector/onshape-executor.js'
 import { isKnownOpKind, normalizeOps } from '../cad_connector/executor.js'
 
@@ -100,7 +100,7 @@ export function createOnshapeTool(deps: OnshapeToolDeps): ToolDefinition {
     },
     timeoutMs: 300_000,
     isConcurrencySafe: () => false,
-    async execute(args) {
+    async execute(args, exec: unknown) {
       if (!onshapeAvailable()) throw new Error(onshapeUnavailableReason())
       if (!Array.isArray(args.steps) || args.steps.length === 0) {
         throw new Error('steps must be a non-empty array of ops')
@@ -131,7 +131,7 @@ export function createOnshapeTool(deps: OnshapeToolDeps): ToolDefinition {
           : {}),
       }
       if (args.exportPath !== undefined) {
-        const resolved = resolveWorkspacePath(args.exportPath, deps.workspaceRoot)
+        const resolved = resolveSessionPath(args.exportPath, exec, deps.workspaceRoot)
         const extension = resolved.toLowerCase().split('.').pop() ?? ''
         if (!EXPORT_EXTENSIONS.has(extension)) {
           throw new Error(`exportPath must be one of ${[...EXPORT_EXTENSIONS].map((ext) => `.${ext}`).join(' ')} (got .${extension})`)

@@ -11,7 +11,7 @@ import type { SceneStore } from '../store.js'
 import type { CadDrawing2D } from '../types.js'
 import { decodePng } from '../convert/png.js'
 import { extractProfiles } from '../image/profile.js'
-import { loadCadFile, resolveWorkspacePath } from './util.js'
+import { loadCadFile, resolveSessionPath } from './util.js'
 
 export interface CadImageToolDeps {
   store: SceneStore
@@ -67,8 +67,8 @@ export function createCadImageTool(deps: CadImageToolDeps): ToolDefinition {
     },
     timeoutMs: 120_000,
     isConcurrencySafe: () => true,
-    async execute(args) {
-      const resolved = resolveWorkspacePath(args.path, deps.workspaceRoot)
+    async execute(args, exec: unknown) {
+      const resolved = resolveSessionPath(args.path, exec, deps.workspaceRoot)
       const buffer = await loadCadFile(resolved)
       const image = decodePng(buffer)
       const profiles = extractProfiles(image, {

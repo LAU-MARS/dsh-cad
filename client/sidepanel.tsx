@@ -102,7 +102,10 @@ function useKindMetas(useSessions: CadSidePanelProps['useSessions'], sessions: S
       drawing: sessionMetas.drawing ?? readKind('drawing')?.meta ?? null,
     }
   }
-  return { part: readLatest()?.meta ?? null, assembly: readKind('assembly')?.meta ?? null, drawing: readKind('drawing')?.meta ?? null }
+  // Kind-filtered fallbacks: readLatest() is the freshest result of ANY kind,
+  // so a drawing's meta (viewId = drawing scene id, not a document id) would
+  // drive the Part tab's feature-tree fetch into a 404 (issue #6).
+  return { part: readKind('part')?.meta ?? null, assembly: readKind('assembly')?.meta ?? null, drawing: readKind('drawing')?.meta ?? null }
 }
 
 // ── tab store (module level: survives collapse/expand and remounts) ─────────
@@ -266,19 +269,39 @@ interface Anchors {
 }
 
 /**
- * Locate the AppFrame columns from the panel's own overlay root. The frame's
- * DOM child order is [sidebarCol, centerCol, detailsCol, overlayLayer] and the
- * overlay layer carries the stable `data-shell-overlay` marker (hashed class
- * names are never relied on); every hop is checked, missing anchors degrade.
+ * Locate the AppFrame columns from the panel's own overlay root.
+ *
+ * Primary: the host's stable `data-rightbar-col` marker (present on every
+ * AppFrame version, old web through desktop through 0.2.1-alpha) — the
+ * center column is its previous sibling in all of them.
+ *
+ * Fallback: walk the overlay layer's previous siblings skipping full-width
+ * rows (0.2.1 added a full-width bottom row right before the overlay, which
+ * a plain sibling-order guess would mistake for the details column — the
+ * panel ended up offset by the full frame width, i.e. mounted but rendered
+ * outside the viewport). Hashed class names are never relied on; missing
+ * anchors degrade.
  */
 function findAnchors(root: HTMLElement): Anchors {
   const layer = root.closest('[data-shell-overlay]')
   if (!(layer instanceof HTMLElement)) return { frame: null, detailsCol: null, centerCol: null }
   const frame = layer.parentElement instanceof HTMLElement ? layer.parentElement : null
-  const detailsCol = layer.previousElementSibling instanceof HTMLElement ? layer.previousElementSibling : null
-  const centerCol =
-    detailsCol?.previousElementSibling instanceof HTMLElement ? detailsCol.previousElementSibling : null
-  return { frame, detailsCol, centerCol }
+  if (frame !== null) {
+    const marked = frame.querySelector('[data-rightbar-col]')
+    if (marked instanceof HTMLElement) {
+      const centerCol = marked.previousElementSibling instanceof HTMLElement ? marked.previousElementSibling : null
+      return { frame, detailsCol: marked, centerCol }
+    }
+  }
+  const frameWidth = frame !== null ? frame.getBoundingClientRect().width : 0
+  const columns: HTMLElement[] = []
+  let sibling = layer.previousElementSibling
+  while (sibling instanceof HTMLElement && columns.length < 2) {
+    const width = sibling.getBoundingClientRect().width
+    if (!(frameWidth > 0 && width >= frameWidth - 1)) columns.push(sibling)
+    sibling = sibling.previousElementSibling
+  }
+  return { frame, detailsCol: columns[0] ?? null, centerCol: columns[1] ?? null }
 }
 
 interface DockGeometry {

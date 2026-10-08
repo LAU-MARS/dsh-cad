@@ -50,6 +50,9 @@ export interface CadViewMeta {
   file: string
   /** Which panel tab this result belongs to (default 'part'). */
   doc?: 'part' | 'assembly' | 'drawing'
+  /** The owning modeling document — set on assembly/drawing metas whose viewId
+   *  is a scene id rather than the document id (feature-tree fetches use it). */
+  docId?: string
   sceneUrl?: string
   title: string
   stats: {

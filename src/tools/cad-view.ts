@@ -9,7 +9,7 @@ import { detectFormat, is3DFormat } from '../convert/detect.js'
 import { convert } from '../convert/index.js'
 import { sceneStats } from '../types.js'
 import type { SceneStore } from '../store.js'
-import { loadCadFile, resolveWorkspacePath } from './util.js'
+import { loadCadFile, resolveSessionPath } from './util.js'
 
 export interface CadViewToolDeps {
   store: SceneStore
@@ -81,8 +81,8 @@ export function createCadViewTool(deps: CadViewToolDeps): ToolDefinition {
     },
     timeoutMs: 180_000,
     isConcurrencySafe: () => true,
-    async execute(args) {
-      const resolved = resolveWorkspacePath(args.path, deps.workspaceRoot)
+    async execute(args, exec: unknown) {
+      const resolved = resolveSessionPath(args.path, exec, deps.workspaceRoot)
       const name = basename(resolved)
       const format = detectFormat(name)
       if (format === null) {

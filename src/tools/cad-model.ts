@@ -10,7 +10,8 @@
  * lossless-JSON validation).
  */
 import { randomUUID } from 'node:crypto'
-import { writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
+import path from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { runModelOp, workerResetEpoch } from '../modeling/client.js'
@@ -23,7 +24,7 @@ import { composeAssemblyMeshes } from '../modeling/assembly.js'
 import { buildDrawingSheet, drawingToDxf, drawingToSvg } from '../modeling/drawing.js'
 import type { DrawingSheet } from '../modeling/drawing.js'
 import type { SceneStore } from '../store.js'
-import { resolveWorkspacePath } from './util.js'
+import { resolveSessionPath } from './util.js'
 import { toDcPrtDocument } from '../feature_script/dc_prt.js'
 import { createConstraintTools } from './cad-constraint.js'
 import type { ConstraintModel } from '../modeling/constraints.js'
@@ -396,6 +397,24 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
         : `document: ${String(value.bodies)} bodies, ${String(value.triangles)} triangles (version ${String(value.version)})`,
     ]
     if (Array.isArray(value.removed) && value.removed.length > 0) lines.push(`consumed bodies: ${(value.removed as string[]).join(', ')}`)
+    // cad_sketch_list: the sketches are the payload — render them, or the
+    // result reads as just a body count (issue #6).
+    if (Array.isArray(value.sketches)) {
+      const sketches = value.sketches as Array<Record<string, unknown>>
+      if (sketches.length === 0) {
+        lines.push('sketches: (none — create one with cad_sketch_new)')
+      } else {
+        for (const sketch of sketches) {
+          const size =
+            sketch.type === 'circle'
+              ? `R${String(sketch.radius)}`
+              : sketch.type === 'segments'
+                ? `${String(sketch.segments)} segments`
+                : `${String(sketch.points)} points`
+          lines.push(`sketch ${String(sketch.name)}: ${String(sketch.type)} (${size})`)
+        }
+      }
+    }
     if (value.volume !== undefined) lines.push(`volume: ${Number(value.volume).toFixed(2)} mm³`)
     if (value.filePath !== undefined) lines.push(`written: ${String(value.filePath)}`)
     return lines.join('\n')
@@ -418,6 +437,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   /** Presentation meta for assembly ops (kind 3d, doc assembly). */
   const assemblyMetaOf = (value: Record<string, unknown>) => ({
     viewId: String(value.viewId),
+    // viewId 是装配场景 id（asm-<docId>）；docId 供客户端查文档级数据（特征树等）。
+    docId: document.doc.docId,
     kind: '3d' as const,
     format: 'assembly',
     file: 'assembly',
@@ -433,6 +454,8 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   /** Presentation meta for drawing ops (kind 2d, doc drawing). */
   const drawingMetaOf = (value: Record<string, unknown>) => ({
     viewId: String(value.drawingId),
+    // viewId 是图纸场景 id；docId 供客户端查文档级数据（特征树等）。
+    docId: document.doc.docId,
     kind: '2d' as const,
     format: 'drawing',
     file: 'drawing',
@@ -1081,11 +1104,15 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
         ...(args.angle !== undefined ? { angle: args.angle } : {}),
       }
       const result = await runModelOp(op)
-      const created = (result.created ?? []).map((entry) => {
+      const createdEntries = result.created ?? []
+      const created = createdEntries.map((entry) => {
         if (entry.mesh !== undefined) meshCache.set(entry.bodyId, mirrorMesh(entry.mesh, entry.bodyId))
         return entry.bodyId
       })
-      await document.record(op, null)
+      // Record every copy's name: bodyNames is the manifest the assembly
+      // tree reads, and skipping copies marked pattern-derived instances as
+      // missing (issue #6).
+      await document.record(op, createdEntries.map((entry) => ({ bodyId: entry.bodyId, name: entry.name ?? entry.bodyId })))
       const meshes = [...meshCache.values()]
       const sceneUrlBase = deps.ensureSceneRoute()
       if (sceneUrlBase !== null && meshes.length > 0) {
@@ -1251,7 +1278,10 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     isConcurrencySafe: () => true,
     async execute(args, exec: unknown) {
       await resolveDoc(exec)
-      const resolved = resolveWorkspacePath(args.path, deps.workspaceRoot)
+      const resolved = resolveSessionPath(args.path, exec, deps.workspaceRoot)
+      // Auto-create the parent directory — the session workspace is the base,
+      // and nested export paths should just work (issue #6).
+      await mkdir(path.dirname(resolved), { recursive: true })
       const lower = args.path.toLowerCase()
 
       // Assembly export: compound of transformed instances via the worker.

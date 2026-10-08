@@ -24,11 +24,15 @@ export declare class ModelDocument {
     private get file();
     /** Load the persisted document if one exists. */
     restore(): Promise<void>;
-    /** Append an applied operation and persist. */
+    /** Append an applied operation and persist. Multi-create ops (pattern)
+     *  pass an array so every copy's display name lands in bodyNames. */
     record(op: ModelOp, bodyName: {
         bodyId: string;
         name: string;
-    } | null): Promise<void>;
+    } | Array<{
+        bodyId: string;
+        name: string;
+    }> | null): Promise<void>;
     /** Persist the current state without appending an op (registry creation). */
     save(): Promise<void>;
     /**

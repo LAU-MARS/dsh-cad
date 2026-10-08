@@ -38,6 +38,10 @@ export interface FoldedAssembly {
     instances: AssemblyInstance[];
     entities: ConstraintEntity[];
     constraints: ConstraintEntry[];
+    /** Body ids alive at the end of the log — the ground truth for "missing".
+     *  Folded from ops rather than read off bodyNames because documents written
+     *  before pattern copies were recorded have incomplete name maps. */
+    liveBodyIds: Set<string>;
 }
 /**
  * Rebuild the assembly state purely from the persisted op log — the worker
