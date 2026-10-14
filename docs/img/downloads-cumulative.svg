@@ -1,28 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" role="img" aria-label="cumulative npm downloads of dsh-cad: 4,940">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" role="img" aria-label="cumulative npm downloads of dsh-cad: 5,147">
   <rect width="880" height="300" rx="8" fill="#ffffff" stroke="#e6e9ef"/>
   <text x="56" y="24" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="15" font-weight="600" fill="#1f2328">dsh-cad · npm cumulative downloads</text>
-  <text x="862" y="24" text-anchor="end" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="16" font-weight="700" fill="#4D6BFE">4,940</text>
-  <text x="56" y="39" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="10.5" fill="#6e7781">source npmjs.org · updated 2026-10-13 · 2026-08-31 → 2026-10-11</text>
+  <text x="862" y="24" text-anchor="end" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="16" font-weight="700" fill="#4D6BFE">5,147</text>
+  <text x="56" y="39" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="10.5" fill="#6e7781">source npmjs.org · updated 2026-10-14 · 2026-08-31 → 2026-10-12</text>
   <g font-family="Verdana,Geneva,'DejaVu Sans',sans-serif">
   <line x1="56" x2="862" y1="266.0" y2="266.0" stroke="#eaeef4"/>
   <text x="48" y="270.0" text-anchor="end" font-size="11" fill="#59636e">0</text>
-  <line x1="56" x2="862" y1="222.4" y2="222.4" stroke="#eaeef4"/>
-  <text x="48" y="226.4" text-anchor="end" font-size="11" fill="#59636e">1K</text>
-  <line x1="56" x2="862" y1="178.8" y2="178.8" stroke="#eaeef4"/>
-  <text x="48" y="182.8" text-anchor="end" font-size="11" fill="#59636e">2K</text>
-  <line x1="56" x2="862" y1="135.2" y2="135.2" stroke="#eaeef4"/>
-  <text x="48" y="139.2" text-anchor="end" font-size="11" fill="#59636e">3K</text>
-  <line x1="56" x2="862" y1="91.6" y2="91.6" stroke="#eaeef4"/>
-  <text x="48" y="95.6" text-anchor="end" font-size="11" fill="#59636e">4K</text>
+  <line x1="56" x2="862" y1="229.7" y2="229.7" stroke="#eaeef4"/>
+  <text x="48" y="233.7" text-anchor="end" font-size="11" fill="#59636e">1K</text>
+  <line x1="56" x2="862" y1="193.3" y2="193.3" stroke="#eaeef4"/>
+  <text x="48" y="197.3" text-anchor="end" font-size="11" fill="#59636e">2K</text>
+  <line x1="56" x2="862" y1="157.0" y2="157.0" stroke="#eaeef4"/>
+  <text x="48" y="161.0" text-anchor="end" font-size="11" fill="#59636e">3K</text>
+  <line x1="56" x2="862" y1="120.7" y2="120.7" stroke="#eaeef4"/>
+  <text x="48" y="124.7" text-anchor="end" font-size="11" fill="#59636e">4K</text>
+  <line x1="56" x2="862" y1="84.3" y2="84.3" stroke="#eaeef4"/>
+  <text x="48" y="88.3" text-anchor="end" font-size="11" fill="#59636e">5K</text>
   <line x1="56" x2="862" y1="48.0" y2="48.0" stroke="#eaeef4"/>
-  <text x="48" y="52.0" text-anchor="end" font-size="11" fill="#59636e">5K</text>
+  <text x="48" y="52.0" text-anchor="end" font-size="11" fill="#59636e">6K</text>
   <text x="56.0" y="288" text-anchor="start" font-size="11" fill="#59636e">08-31</text>
-  <text x="213.3" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-08</text>
-  <text x="370.5" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-16</text>
-  <text x="547.5" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-25</text>
-  <text x="704.7" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-03</text>
-  <text x="862.0" y="288" text-anchor="end" font-size="11" fill="#59636e">10-11</text></g>
-  <path d="M56.0,259.7L75.7,257.9L95.3,256.7L115.0,256.7L134.6,255.8L154.3,255.3L174.0,254.5L193.6,254.5L213.3,254.5L232.9,253.7L252.6,252.2L272.2,226.1L291.9,219.2L311.6,215.2L331.2,211.3L350.9,211.3L370.5,207.1L390.2,203.3L409.9,199.8L429.5,196.3L449.2,192.8L468.8,188.6L488.5,185.0L508.1,178.6L527.8,174.1L547.5,171.7L567.1,169.4L586.8,165.7L606.4,141.4L626.1,135.8L645.8,115.3L665.4,110.3L685.1,105.2L704.7,100.2L724.4,95.7L744.0,90.9L763.7,90.9L783.4,85.1L803.0,71.7L822.7,63.1L842.3,56.2L862.0,50.6L862.0,266.0L56,266.0Z" fill="rgba(77,107,254,0.13)"/>
-  <path d="M56.0,259.7L75.7,257.9L95.3,256.7L115.0,256.7L134.6,255.8L154.3,255.3L174.0,254.5L193.6,254.5L213.3,254.5L232.9,253.7L252.6,252.2L272.2,226.1L291.9,219.2L311.6,215.2L331.2,211.3L350.9,211.3L370.5,207.1L390.2,203.3L409.9,199.8L429.5,196.3L449.2,192.8L468.8,188.6L488.5,185.0L508.1,178.6L527.8,174.1L547.5,171.7L567.1,169.4L586.8,165.7L606.4,141.4L626.1,135.8L645.8,115.3L665.4,110.3L685.1,105.2L704.7,100.2L724.4,95.7L744.0,90.9L763.7,90.9L783.4,85.1L803.0,71.7L822.7,63.1L842.3,56.2L862.0,50.6" fill="none" stroke="#4D6BFE" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="862.0" cy="50.6" r="4" fill="#4D6BFE" stroke="#fff" stroke-width="1.5"/>
+  <text x="209.5" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-08</text>
+  <text x="382.2" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-17</text>
+  <text x="535.8" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-25</text>
+  <text x="708.5" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-04</text>
+  <text x="862.0" y="288" text-anchor="end" font-size="11" fill="#59636e">10-12</text></g>
+  <path d="M56.0,260.8L75.2,259.2L94.4,258.3L113.6,258.3L132.8,257.5L152.0,257.1L171.1,256.4L190.3,256.4L209.5,256.4L228.7,255.8L247.9,254.5L267.1,232.8L286.3,227.0L305.5,223.6L324.7,220.4L343.9,220.4L363.0,217.0L382.2,213.8L401.4,210.8L420.6,207.9L439.8,205.0L459.0,201.5L478.2,198.5L497.4,193.2L516.6,189.4L535.8,187.4L555.0,185.5L574.1,182.4L593.3,162.2L612.5,157.5L631.7,140.4L650.9,136.3L670.1,132.0L689.3,127.8L708.5,124.1L727.7,120.1L746.9,120.1L766.0,115.3L785.2,104.1L804.4,96.9L823.6,91.2L842.8,86.5L862.0,79.0L862.0,266.0L56,266.0Z" fill="rgba(77,107,254,0.13)"/>
+  <path d="M56.0,260.8L75.2,259.2L94.4,258.3L113.6,258.3L132.8,257.5L152.0,257.1L171.1,256.4L190.3,256.4L209.5,256.4L228.7,255.8L247.9,254.5L267.1,232.8L286.3,227.0L305.5,223.6L324.7,220.4L343.9,220.4L363.0,217.0L382.2,213.8L401.4,210.8L420.6,207.9L439.8,205.0L459.0,201.5L478.2,198.5L497.4,193.2L516.6,189.4L535.8,187.4L555.0,185.5L574.1,182.4L593.3,162.2L612.5,157.5L631.7,140.4L650.9,136.3L670.1,132.0L689.3,127.8L708.5,124.1L727.7,120.1L746.9,120.1L766.0,115.3L785.2,104.1L804.4,96.9L823.6,91.2L842.8,86.5L862.0,79.0" fill="none" stroke="#4D6BFE" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="862.0" cy="79.0" r="4" fill="#4D6BFE" stroke="#fff" stroke-width="1.5"/>
 </svg>
