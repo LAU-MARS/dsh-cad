@@ -1,0 +1,47 @@
+/**
+ * OpenAI-format tool schemas exposed to the policy. Mirrored (by hand) in
+ * rl/python/tools/cad_tools_schema.json — keep the two in sync when editing.
+ */
+export const TOOL_SCHEMAS = [
+  {
+    type: 'function',
+    function: {
+      name: 'cad_op',
+      description:
+        '在当前 episode 的建模内核上执行一个建模操作（ModelOp JSON）。常用 kind：' +
+        'create_prim（prim: box|cylinder|sphere|cone|torus；params 如 dx/dy/dz、radius/height、at:[x,y,z]、axis:[x,y,z]）、' +
+        'boolean（op: fuse|cut|common，target 是被操作体，tools 是工具体 id 数组）、' +
+        'fillet（target, radius）、chamfer（target, distance）、extrude_profile、revolve、loft、sweep、' +
+        'pattern、transform、shell、draft、delete、volume、tessellate_all。',
+      parameters: {
+        type: 'object',
+        properties: {
+          op: {
+            type: 'object',
+            description:
+              'ModelOp 对象。例：{"kind":"create_prim","bodyId":"part","prim":"box","params":{"dx":30,"dy":20,"dz":10}}；' +
+              '布尔减：{"kind":"boolean","op":"cut","target":"plate","tools":["hole"]}',
+          },
+        },
+        required: ['op'],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cad_state',
+      description: '查看当前 episode 的建模状态：各 body 的体积/三角面数、总体积、包围盒、已用步数。不消耗建模操作。',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'cad_submit',
+      description: '结束本 episode 并评分：当前模型与目标模型的几何相似度（体积比、包围盒 IoU、表面 Chamfer）。返回最终 reward。',
+      parameters: { type: 'object', properties: {}, additionalProperties: false },
+    },
+  },
+]
