@@ -1,8 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" role="img" aria-label="cumulative npm downloads of dsh-cad: 5,147">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" role="img" aria-label="cumulative npm downloads of dsh-cad: 5,276">
   <rect width="880" height="300" rx="8" fill="#ffffff" stroke="#e6e9ef"/>
   <text x="56" y="24" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="15" font-weight="600" fill="#1f2328">dsh-cad · npm cumulative downloads</text>
-  <text x="862" y="24" text-anchor="end" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="16" font-weight="700" fill="#4D6BFE">5,147</text>
-  <text x="56" y="39" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="10.5" fill="#6e7781">source npmjs.org · updated 2026-10-17 · 2026-08-31 → 2026-10-12</text>
+  <text x="862" y="24" text-anchor="end" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="16" font-weight="700" fill="#4D6BFE">5,276</text>
+  <text x="56" y="39" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="10.5" fill="#6e7781">source npmjs.org · updated 2026-10-18 · 2026-08-31 → 2026-10-16</text>
   <g font-family="Verdana,Geneva,'DejaVu Sans',sans-serif">
   <line x1="56" x2="862" y1="266.0" y2="266.0" stroke="#eaeef4"/>
   <text x="48" y="270.0" text-anchor="end" font-size="11" fill="#59636e">0</text>
@@ -19,12 +19,12 @@
   <line x1="56" x2="862" y1="48.0" y2="48.0" stroke="#eaeef4"/>
   <text x="48" y="52.0" text-anchor="end" font-size="11" fill="#59636e">6K</text>
   <text x="56.0" y="288" text-anchor="start" font-size="11" fill="#59636e">08-31</text>
-  <text x="209.5" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-08</text>
-  <text x="382.2" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-17</text>
-  <text x="535.8" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-25</text>
-  <text x="708.5" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-04</text>
-  <text x="862.0" y="288" text-anchor="end" font-size="11" fill="#59636e">10-12</text></g>
-  <path d="M56.0,260.8L75.2,259.2L94.4,258.3L113.6,258.3L132.8,257.5L152.0,257.1L171.1,256.4L190.3,256.4L209.5,256.4L228.7,255.8L247.9,254.5L267.1,232.8L286.3,227.0L305.5,223.6L324.7,220.4L343.9,220.4L363.0,217.0L382.2,213.8L401.4,210.8L420.6,207.9L439.8,205.0L459.0,201.5L478.2,198.5L497.4,193.2L516.6,189.4L535.8,187.4L555.0,185.5L574.1,182.4L593.3,162.2L612.5,157.5L631.7,140.4L650.9,136.3L670.1,132.0L689.3,127.8L708.5,124.1L727.7,120.1L746.9,120.1L766.0,115.3L785.2,104.1L804.4,96.9L823.6,91.2L842.8,86.5L862.0,79.0L862.0,266.0L56,266.0Z" fill="rgba(77,107,254,0.13)"/>
-  <path d="M56.0,260.8L75.2,259.2L94.4,258.3L113.6,258.3L132.8,257.5L152.0,257.1L171.1,256.4L190.3,256.4L209.5,256.4L228.7,255.8L247.9,254.5L267.1,232.8L286.3,227.0L305.5,223.6L324.7,220.4L343.9,220.4L363.0,217.0L382.2,213.8L401.4,210.8L420.6,207.9L439.8,205.0L459.0,201.5L478.2,198.5L497.4,193.2L516.6,189.4L535.8,187.4L555.0,185.5L574.1,182.4L593.3,162.2L612.5,157.5L631.7,140.4L650.9,136.3L670.1,132.0L689.3,127.8L708.5,124.1L727.7,120.1L746.9,120.1L766.0,115.3L785.2,104.1L804.4,96.9L823.6,91.2L842.8,86.5L862.0,79.0" fill="none" stroke="#4D6BFE" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="862.0" cy="79.0" r="4" fill="#4D6BFE" stroke="#fff" stroke-width="1.5"/>
+  <text x="213.7" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-09</text>
+  <text x="371.4" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-18</text>
+  <text x="546.6" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-28</text>
+  <text x="704.3" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-07</text>
+  <text x="862.0" y="288" text-anchor="end" font-size="11" fill="#59636e">10-16</text></g>
+  <path d="M56.0,260.8L73.5,259.2L91.0,258.3L108.6,258.3L126.1,257.5L143.6,257.1L161.1,256.4L178.7,256.4L196.2,256.4L213.7,255.8L231.2,254.5L248.7,232.8L266.3,227.0L283.8,223.6L301.3,220.4L318.8,220.4L336.3,217.0L353.9,213.8L371.4,210.8L388.9,207.9L406.4,205.0L424.0,201.5L441.5,198.5L459.0,193.2L476.5,189.4L494.0,187.4L511.6,185.5L529.1,182.4L546.6,162.2L564.1,157.5L581.7,140.4L599.2,136.3L616.7,132.0L634.2,127.8L651.7,124.1L669.3,120.1L686.8,120.1L704.3,115.3L721.8,104.1L739.3,96.9L756.9,91.2L774.4,86.5L791.9,79.0L809.4,79.0L827.0,79.0L844.5,79.0L862.0,74.3L862.0,266.0L56,266.0Z" fill="rgba(77,107,254,0.13)"/>
+  <path d="M56.0,260.8L73.5,259.2L91.0,258.3L108.6,258.3L126.1,257.5L143.6,257.1L161.1,256.4L178.7,256.4L196.2,256.4L213.7,255.8L231.2,254.5L248.7,232.8L266.3,227.0L283.8,223.6L301.3,220.4L318.8,220.4L336.3,217.0L353.9,213.8L371.4,210.8L388.9,207.9L406.4,205.0L424.0,201.5L441.5,198.5L459.0,193.2L476.5,189.4L494.0,187.4L511.6,185.5L529.1,182.4L546.6,162.2L564.1,157.5L581.7,140.4L599.2,136.3L616.7,132.0L634.2,127.8L651.7,124.1L669.3,120.1L686.8,120.1L704.3,115.3L721.8,104.1L739.3,96.9L756.9,91.2L774.4,86.5L791.9,79.0L809.4,79.0L827.0,79.0L844.5,79.0L862.0,74.3" fill="none" stroke="#4D6BFE" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="862.0" cy="74.3" r="4" fill="#4D6BFE" stroke="#fff" stroke-width="1.5"/>
 </svg>
