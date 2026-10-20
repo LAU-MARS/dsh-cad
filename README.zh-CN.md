@@ -109,7 +109,7 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | `cad_sketch_list` | 列出文档草图（名称 / 形式 / 规模） |
 | `cad_sketch_delete` | 删除草图（仍被特征引用时拒绝） |
 | `cad_extrude_profile` | XY 平面闭合轮廓沿 +Z 拉伸成实体——内联点列/曲线段/圆，或引用命名草图（`sketch`） |
-| `cad_loft` | 放样：多个闭合截面（各自平面内的 [x,y,z…] 环）蒙皮成体，截面形状/点数可不同，`ruled` 直纹 |
+| `cad_loft` | 放样：多个闭合截面（[x,y,z…] 点环，或 `{through}` 样条 / 平面 `{profile}` 曲线截面）蒙皮成体，截面形状/点数可不同；`smooth: true` 用周期 B 样条拟合点环，得到单一连续侧面（零折痕）；`ruled` 直纹 |
 | `cad_revolve` | 旋转体：闭合轮廓绕轴回转（profile 坐标 = (半径, 高度)，支持曲线段——圆角轮缘精确），`angle` 角度可选；可引用命名草图 |
 | `cad_chamfer` | 倒角：全锐边等距离斜切（mm） |
 | `cad_pattern` | 阵列：线性（delta 间距）或圆周（主轴 + at 轴点 + 总角度），生成副本体，可再 fuse 合并 |

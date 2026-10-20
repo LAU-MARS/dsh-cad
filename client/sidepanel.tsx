@@ -18,6 +18,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, us
 import type { CadViewMeta } from './scene-types.js'
 import { mountCadEditor3D } from './viewer3d.js'
 import { readKind, readLatest, subscribeLatest, useScene, Viewport } from './viewport.js'
+import { sceneVersion, setPollSession, useActiveDoc, useDocVersion, withDocVersion } from './doc-revision.js'
 import type { DocKind } from './viewport.js'
 import { AssemblyTree, useAssemblyTree } from './assembly-tree.js'
 import { FeatureTree, useFeatureTree } from './feature-tree.js'
@@ -562,6 +563,8 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
     const [docsOpen, setDocsOpen] = useState(false)
     const geometry = useDockGeometry(rootRef)
     const metas = useKindMetas(props.useSessions, sessions)
+    const sessionId = props.useSessions?.((state) => state.current) ?? null
+    useEffect(() => { setPollSession(sessionId) }, [sessionId])
     const { tabs, active } = useTabs()
 
     const panelWidth = useMemo(() => {
@@ -737,17 +740,24 @@ function useCenterColumnYield(
  * produces a new CAD result (auto-return to live tracking). */
 function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   const preview = usePreviewDoc()
-  const live = useScene(meta?.sceneUrl)
-  const previewScene = useScene(preview?.sceneUrl)
 
   // The part scene's viewId IS the document id; the scene URL's ?v= is the
   // document version, so the feature tree refetches exactly when the
   // document changes (any modeling op, cad_sketch_edit included).
-  const docId = meta?.viewId ?? null
-  const version = useMemo(() => {
-    const match = /[?&]v=(\d+)/.exec(meta?.sceneUrl ?? '')
-    return match === null ? 0 : Number(match[1])
-  }, [meta?.sceneUrl])
+  // Server-side liveness: when the conversation meta pipeline is stale the
+  // polled op count bumps the scene URL anyway, so the viewport follows the
+  // document instead of freezing until a manual file-list reselect. When the
+  // meta points at a different document than the session's binding (doc
+  // switch, cold start), the bound document wins.
+  const bound = useActiveDoc()
+  const followBound = bound !== null && bound.sceneUrl !== undefined && (meta === null || bound.id !== meta.viewId)
+  const docId = followBound ? bound.id : meta?.viewId ?? null
+  const sceneBase = followBound ? bound.sceneUrl : meta?.sceneUrl
+  const polledVersion = useDocVersion(docId)
+  const liveUrl = useMemo(() => withDocVersion(sceneBase, polledVersion), [sceneBase, polledVersion])
+  const live = useScene(liveUrl)
+  const previewScene = useScene(preview?.sceneUrl)
+  const version = useMemo(() => sceneVersion(liveUrl), [liveUrl])
   const { tree } = useFeatureTree(docId, version)
   const [treeOpen, setTreeOpen] = useState(true)
   /** The highlighted body's mesh name (tree ↔ viewport selection). */
@@ -764,8 +774,8 @@ function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   }, [docId])
 
   useEffect(() => {
-    if (meta !== null && previewSnapshot !== null) setPreviewDoc(null)
-  }, [meta?.sceneUrl])
+    if (liveUrl !== undefined && previewSnapshot !== null) setPreviewDoc(null)
+  }, [liveUrl])
 
   if (preview !== null) {
     return (
@@ -780,7 +790,7 @@ function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
       </div>
     )
   }
-  if (meta === null) return <EmptyPartStudio />
+  if (meta === null && !followBound) return <EmptyPartStudio />
   return (
     <div style={panelStyles.assemblyStage}>
       <div style={panelStyles.sceneFill}>
@@ -826,14 +836,13 @@ function PartTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
  *  (PARTS + CONSTRAINTS) floating over it. Clicking a part row highlights its
  *  solid; the row's eye toggles its visibility. */
 function AssemblyTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
-  const { scene, error } = useScene(meta?.sceneUrl)
   // The assembly viewId is `asm-<docId>`; the scene URL's ?v= is the document
   // version, so the tree refetches exactly when the assembly changes.
   const docId = meta !== null && meta.viewId.startsWith('asm-') ? meta.viewId.slice(4) : null
-  const version = useMemo(() => {
-    const match = /[?&]v=(\d+)/.exec(meta?.sceneUrl ?? '')
-    return match === null ? 0 : Number(match[1])
-  }, [meta?.sceneUrl])
+  const polledVersion = useDocVersion(docId)
+  const liveUrl = useMemo(() => withDocVersion(meta?.sceneUrl, polledVersion), [meta?.sceneUrl, polledVersion])
+  const { scene, error } = useScene(liveUrl)
+  const version = useMemo(() => sceneVersion(liveUrl), [liveUrl])
   const { tree } = useAssemblyTree(docId, version)
   const [treeOpen, setTreeOpen] = useState(true)
   /** The highlighted part's mesh name (tree ↔ viewport selection). */

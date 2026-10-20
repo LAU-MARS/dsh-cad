@@ -15,7 +15,7 @@ import path from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import { runModelOp, workerResetEpoch } from '../modeling/client.js'
-import type { DrawingViewSpec, ModelOp, OpResult, WorkerMesh } from '../modeling/client.js'
+import type { DrawingViewSpec, LoftSection, ModelOp, OpResult, WorkerMesh } from '../modeling/client.js'
 import { ModelDocument } from '../modeling/document.js'
 import { DocumentRegistry } from '../modeling/registry.js'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
@@ -841,16 +841,18 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
   const cadLoft = defineTool({
     name: 'cad_loft',
     description:
-      'Loft (放样): skin a solid through successive closed sections. `sections` is a list of ≥2 loops, each a flat [x0,y0,z0, x1,y1,z1, …] triplet list in its own plane (≥3 points, auto-closed), ordered along the loft. ' +
-      'Sections may differ in shape and point count (e.g. a square lofted to a hexagon). `ruled` keeps the sides straight instead of smoothing. ' +
+      'Loft (放样): skin a solid through successive closed sections (≥2), ordered along the loft. Each section is either a flat [x0,y0,z0, x1,y1,z1, …] point loop, or an object: {points:[…], smooth?:true}, {through:[…]} (closed B-spline interpolating the points), or {profile, at?, normal?, xAxis?} — a 2D curve profile (flat [x,y], {start,segments:[line|arc|bspline]}, or {circle:{center,radius}}) laid in its own plane. ' +
+      'For a CREASE-FREE surface pass `smooth: true` (or a curve section): a polygon-section loft is planar strips meeting at G0 creases, while a periodic B-spline / NURBS section skims ONE continuous B-spline lateral face. ' +
+      'Sections may differ in shape and point count (e.g. a square lofted to a hexagon); `ruled` keeps the sides straight instead of smoothing. ' +
       'Each result passes a BRepCheck validity gate: a self-intersecting or degenerate loft is rejected with a clear message instead of storing an unusable body.',
     parameters: {
       sections: {
         type: 'array',
         required: true,
-        description: 'Ordered sections, each a flat [x,y,z,…] loop (≥9 numbers).',
-        items: { type: 'array', items: { type: 'number' }, description: 'One closed section loop.' },
+        description: 'Ordered sections (≥2): each a flat [x,y,z,…] loop (≥9 numbers) or a section object {points|through|profile, at?, normal?, xAxis?, smooth?}.',
+        items: { type: 'json', description: 'One closed section loop or section object.' },
       },
+      smooth: { type: 'boolean', description: 'Fit a periodic B-spline through each plain point loop — the crease-free "NURBS section" loft (default false).' },
       ruled: { type: 'boolean', description: 'Straight (ruled) sides instead of a smoothed surface (default false).' },
       solid: { type: 'boolean', description: 'Cap the ends into a solid (default true).' },
       name: { type: 'string', description: 'Optional display name.' },
@@ -872,8 +874,15 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     async execute(args, exec: unknown) {
       await resolveDoc(exec)
       if (!Array.isArray(args.sections) || args.sections.length < 2) throw new Error('sections must list at least 2 closed loops')
+      for (const section of args.sections) {
+        if (Array.isArray(section)) {
+          if (section.length < 9 || section.length % 3 !== 0) throw new Error('a point loop section needs ≥3 [x,y,z] triplets (≥9 numbers)')
+        } else if (section === null || typeof section !== 'object') {
+          throw new Error('each section must be a flat [x,y,z,…] loop or a {points|through|profile, …} object')
+        }
+      }
       const bodyId = nextBodyId()
-      const op: ModelOp = { kind: 'loft', bodyId, sections: args.sections, solid: args.solid, ruled: args.ruled, name: args.name }
+      const op: ModelOp = { kind: 'loft', bodyId, sections: args.sections as LoftSection[], solid: args.solid, ruled: args.ruled, smooth: args.smooth, name: args.name }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
     },

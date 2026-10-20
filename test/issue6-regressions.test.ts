@@ -137,11 +137,17 @@ describe('issue #6 regressions', () => {
   })
 
   it('P1-5 (unit): resolveSessionPath prefers the session cwd, falls back cleanly', () => {
-    const exec = { agent: { session: { header: { cwd: 'D:\\session-root' } } } }
-    expect(resolveSessionPath('a/b.step', exec, 'D:\\process-root')).toBe(path.join('D:\\session-root', 'a', 'b.step'))
-    expect(resolveSessionPath('C:\\abs\\x.stl', exec, 'D:\\process-root')).toBe(path.join('C:\\abs', 'x.stl'))
-    expect(resolveSessionPath('a.step', { agent: { id: 'no-session' } }, 'D:\\process-root')).toBe(path.join('D:\\process-root', 'a.step'))
-    expect(resolveSessionPath('a.step', undefined, 'D:\\process-root')).toBe(path.join('D:\\process-root', 'a.step'))
+    // Platform-appropriate roots: the resolver defers to the host path rules,
+    // so a hard-coded Windows drive letter is only absolute on Windows.
+    const win = process.platform === 'win32'
+    const sessionRoot = win ? 'D:\\session-root' : '/tmp/session-root'
+    const processRoot = win ? 'D:\\process-root' : '/tmp/process-root'
+    const absolute = win ? 'C:\\abs\\x.stl' : '/abs/x.stl'
+    const exec = { agent: { session: { header: { cwd: sessionRoot } } } }
+    expect(resolveSessionPath('a/b.step', exec, processRoot)).toBe(path.join(sessionRoot, 'a', 'b.step'))
+    expect(resolveSessionPath(absolute, exec, processRoot)).toBe(path.join(win ? 'C:\\abs' : '/abs', 'x.stl'))
+    expect(resolveSessionPath('a.step', { agent: { id: 'no-session' } }, processRoot)).toBe(path.join(processRoot, 'a.step'))
+    expect(resolveSessionPath('a.step', undefined, processRoot)).toBe(path.join(processRoot, 'a.step'))
   })
 
   it('P2-6: sceneStats drops non-finite bounds instead of breaking lossless JSON', async () => {
@@ -157,9 +163,18 @@ describe('issue #6 regressions', () => {
     expect(stats.boundsMax).toBeUndefined()
     expect(() => JSON.parse(JSON.stringify(stats))).not.toThrow()
 
-    // A real drawing SVG keeps its finite bounds.
+    // A real drawing SVG keeps its finite bounds. Generated inline: the old
+    // fixture (gear_m3_z12_drawing.svg) was never committed, so the test only
+    // passed on machines that happened to carry the file in the cwd.
     const { convert } = await import('../src/convert/index.js')
-    const scene = await convert(await readFile(path.join(process.cwd(), 'gear_m3_z12_drawing.svg')), 'svg', 'gear.svg')
+    const svg = Buffer.from([
+      '<svg xmlns="http://www.w3.org/2000/svg" width="210" height="148" viewBox="0 0 210 148">',
+      '<rect x="10" y="10" width="120" height="80" fill="none" stroke="#000"/>',
+      '<circle cx="150" cy="90" r="20" fill="none" stroke="#000"/>',
+      '<line x1="20" y1="120" x2="190" y2="120" stroke="#000"/>',
+      '</svg>',
+    ].join(''))
+    const scene = await convert(svg, 'svg', 'gear.svg')
     const real = sceneStats(scene)
     expect(real.boundsMin).toBeDefined()
     expect(real.boundsMin!.every((v) => Number.isFinite(v))).toBe(true)

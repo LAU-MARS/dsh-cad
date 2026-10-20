@@ -68,10 +68,30 @@ export interface DrawingViewSpec {
   xDir: [number, number, number]
 }
 
+/** One loft section: a flat world-space loop, or a curve/profile section. */
+export type LoftSection =
+  | number[]
+  | {
+      /** Flat [x,y,z, …] loop (polygon, or a smooth B-spline when `smooth`). */
+      points?: number[]
+      /** Flat [x,y,z, …] points interpolated by a closed B-spline. */
+      through?: number[]
+      /** 2D profile (flat [x,y,…], {start,segments}, or {circle}) in the section plane. */
+      profile?: unknown
+      /** Plane origin for `profile` (default world origin). */
+      at?: [number, number, number]
+      /** Plane normal for `profile` (default +Z). */
+      normal?: [number, number, number]
+      /** In-plane X axis for `profile` (default world +X projected). */
+      xAxis?: [number, number, number]
+      /** Override the loft-level `smooth` flag for this section. */
+      smooth?: boolean
+    }
+
 export type ModelOp =
   | { kind: 'create_prim'; bodyId: string; prim: string; params?: Record<string, unknown>; name?: string }
   | { kind: 'extrude_profile'; bodyId: string; points?: number[]; profile?: unknown; sketch?: string; height?: number; base?: number; name?: string }
-  | { kind: 'loft'; bodyId: string; sections: number[][]; solid?: boolean; ruled?: boolean; name?: string }
+  | { kind: 'loft'; bodyId: string; sections: LoftSection[]; solid?: boolean; ruled?: boolean; smooth?: boolean; name?: string }
   | { kind: 'revolve'; bodyId: string; profile?: unknown; sketch?: string; angle?: number; axis?: [number, number, number]; at?: [number, number, number]; name?: string }
   | { kind: 'chamfer'; target: string; distance: number }
   | { kind: 'shell'; target: string; thickness: number; openNormals?: Array<[number, number, number]>; faces?: number[] }

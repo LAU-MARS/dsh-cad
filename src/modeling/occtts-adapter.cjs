@@ -174,9 +174,11 @@ function createOcctTsAdapter(mod) {
     const parts = new mod.VectorShape()
     try {
       let cur = [profile.start[0], profile.start[1]]
+      const pushed = []
       const push = (shape) => {
         if (shape.isNull()) throw wrapError('segment edge', new Error('null edge'))
         parts.push_back(shape)
+        pushed.push(shape)
       }
       for (const seg of segs) {
         if (seg === null || typeof seg !== 'object') throw new Error('each profile segment must be an object')
@@ -222,6 +224,12 @@ function createOcctTsAdapter(mod) {
       if (Math.hypot(cur[0] - profile.start[0], cur[1] - profile.start[1]) > 1e-9) {
         push(mod.makeLine(cur[0], cur[1], 0, profile.start[0], profile.start[1], 0))
       }
+      if (pushed.length === 1) {
+        // A single closed B-spline already IS a wire; makeWire needs ≥2 parts.
+        // (A lone edge cannot close a profile — say so instead of a kernel error.)
+        if (typeof pushed[0].shapeType === 'function' && pushed[0].shapeType() === 'Wire') return pushed[0]
+        throw new Error('a segment profile needs at least 2 segments (a single open edge cannot close a loop)')
+      }
       const wire = mod.makeWire(parts)
       if (wire.isNull()) throw wrapError('makeWire', new Error('null wire'))
       return wire
@@ -241,17 +249,82 @@ function createOcctTsAdapter(mod) {
     return solid
   }
 
-  /** Loft through closed 3D section wires. */
+  // ── loft sections: point loops, smooth curves, planar profiles ─────────────
+  /**
+   * Closed wire through a flat [x,y,z, …] loop: a polygon (the historical
+   * section) or — with `smooth` — a PERIODIC B-spline interpolating every
+   * point. The periodic spline has no start/end vertex, so a loft skinned over
+   * it carries no crease lines: the lateral face is a single smooth B-spline
+   * surface instead of one planar strip per polygon edge.
+   */
+  function loopWire(xyz, smooth) {
+    if (!Array.isArray(xyz) || xyz.length < 9 || xyz.length % 3 !== 0) {
+      throw new Error('a section needs at least 3 [x,y,z] triplets (≥9 numbers)')
+    }
+    if (!smooth) return polygonWireXY(xyz)
+    const { ptr, free } = mallocF64(xyz)
+    try {
+      const wire = mod.makeBsplineThrough(ptr, xyz.length / 3, true, 1e-6)
+      if (wire.isNull()) throw wrapError('smooth section', new Error('periodic B-spline construction failed'))
+      return wire
+    } finally {
+      free()
+    }
+  }
+
+  /** Plane frame (origin, in-plane X, in-plane Y) for a planar curve section. */
+  function sectionFrame(section) {
+    const at = section.at ?? [0, 0, 0]
+    if (!Array.isArray(at) || at.length !== 3) throw new Error('section.at must be [x,y,z]')
+    const n = vec3.norm(Array.isArray(section.normal) ? section.normal : [0, 0, 1])
+    const seed = Array.isArray(section.xAxis) ? section.xAxis : [1, 0, 0]
+    const d = vec3.dot(seed, n)
+    let u = [seed[0] - n[0] * d, seed[1] - n[1] * d, seed[2] - n[2] * d]
+    if (Math.hypot(u[0], u[1], u[2]) < 1e-9) {
+      // xAxis parallel to the normal — fall back to a stable perpendicular.
+      const alt = Math.abs(n[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]
+      const d2 = vec3.dot(alt, n)
+      u = [alt[0] - n[0] * d2, alt[1] - n[1] * d2, alt[2] - n[2] * d2]
+    }
+    u = vec3.norm(u)
+    // v = n × u so that u × v = n — profileWire's (u,v) → plane mapping stays
+    // right-handed and profile +Y points along the plane normal cross X.
+    return [at, u, vec3.cross(n, u)]
+  }
+
+  /**
+   * One loft section → a closed wire.
+   *   [x,y,z, …]                     flat point loop (polygon, or smooth B-spline)
+   *   { points: […], smooth?: bool } same, with a per-section override
+   *   { through: [x,y,z, …] }        periodic B-spline through the points
+   *   { profile, at?, normal?, xAxis? }  2D curve profile placed in a plane
+   */
+  function sectionWire(section, smoothDefault) {
+    if (Array.isArray(section)) return loopWire(section, smoothDefault)
+    if (section === null || typeof section !== 'object') {
+      throw new Error('a loft section must be a flat [x,y,z,…] loop or a {points|through|profile, …} object')
+    }
+    if (section.profile !== undefined) {
+      const [o3, u3, v3] = sectionFrame(section)
+      return profileWire(section.profile, o3, u3, v3)
+    }
+    if (section.through !== undefined) return loopWire(section.through, true)
+    if (section.points !== undefined) return loopWire(section.points, section.smooth ?? smoothDefault)
+    throw new Error('a section object needs `points`, `through` or `profile`')
+  }
+
+  /**
+   * Loft through closed 3D sections. `smooth: true` turns plain point loops
+   * into periodic B-splines, which is what makes a crease-free skin: OCCT
+   * skins a B-spline surface through continuous sections, while polygon
+   * sections leave a G0 crease along every polygon edge.
+   */
   function makeLoft(sections, options = {}) {
     if (!Array.isArray(sections) || sections.length < 2) throw new Error('a loft needs at least 2 sections')
+    const smooth = options.smooth === true
     const v = new mod.VectorShape()
     try {
-      for (const section of sections) {
-        if (!Array.isArray(section) || section.length < 9 || section.length % 3 !== 0) {
-          throw new Error('each section must be a flat [x,y,z,…] loop (≥9 numbers)')
-        }
-        v.push_back(polygonWireXY(section))
-      }
+      for (const section of sections) v.push_back(sectionWire(section, smooth))
       const solid = mod.loft(v, options.ruled ?? false, options.solid ?? true)
       if (solid.isNull()) throw wrapError('loft', new Error('null shape'))
       if (Math.abs(volume(solid)) < 1e-9) {

@@ -189,6 +189,11 @@ export function registerDocsRoute(
             name: doc.name,
             bodies: doc.bodyCount,
             updatedAt: doc.updatedAt,
+            // Op count: the panel's liveness signal. It polls this list and
+            // re-fetches the scene when the tracked document's version moves,
+            // so the viewport follows modeling ops even when the conversation
+            // meta pipeline is stale (host UI drift).
+            version: doc.opCount,
             // Preview URL only when a published scene exists (memory or mirror).
             ...(await binStore.has(doc.id) ? { sceneUrl: `${BIN_ROUTE_PATH}/${doc.id}` } : {}),
           })),
