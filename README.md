@@ -43,6 +43,7 @@ Cumulative downloads from the npm registry, refreshed daily by CI:
 | --- | --- |
 | ⚙️ Single-kernel architecture | **occt.ts as the primary modeling kernel** (true B-splines, native shell/draft, centroid); opencascade.js stays only as the fallback backend; the old "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive viewport in the resident right panel (orbit / zoom / wireframe / pan), with a one-line result row in the conversation |
+| 🌗 Dark-mode surfaces | Every rendered surface follows the host theme — viewport slab, DXF/drawing strokes, the Three.js grid / XYZ triad / feature edges / default mesh color / sketch overlays, and the ViewCube plate; a theme flip restyles mounted viewers live. Overrides: `--dsh-cad-bg`, `--dsh-cad-stroke`, `--dsh-cad-paper` |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
 | 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **shell**, **draft**, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation. `cad_loft` sections accept **curves** too: point loops, `{through}` splines or planar `{profile}` chains; `smooth: true` fits a **periodic B-spline** through point loops — one continuous B-spline lateral face instead of planar strips meeting at G0 creases |
 | ✏️ Named sketches | Standalone named profiles (Sketch1…) kept in the document (`cad_sketch_new` / `edit` / `list` / `delete`); extrude/revolve/sweep reference them **by name**, and `cad_sketch_edit` rewrites the definition in place + replays the log, rebuilding every dependent feature — the parametric loop. Sketches render as Onshape-style **blue curves + plane frame** in the viewport (refreshing live on edit), listed in a left-side **feature tree** (sketches + features, eye-toggle visibility, click-to-highlight bodies) over the Part tab |
@@ -229,6 +230,36 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
 - **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
   by the host module table), Z-up CAD convention, empty scene with XYZ axis labels
   and a ground grid always displayed
+
+## Theming (dark mode)
+
+The viewer follows the host appearance automatically. DSH publishes the theme as
+`color-scheme` on `<html>` plus `body[data-ds-dark-theme]`; the plugin resolves
+that (falling back to `prefers-color-scheme`) and themes every surface the host
+tokens cannot reach:
+
+- the viewport slab behind the transparent WebGL canvas and 2D scenes,
+- default 2D entity strokes (DXF / engineering-drawing entities),
+- the Three.js ground grid, XYZ axis triad/labels, feature edges, default mesh
+  color and sketch overlays,
+- the ViewCube face plate (canvas texture).
+
+A theme flip restyles mounted cards and the resident panel live — no reload and
+no lost camera. Engineering drawings loaded as SVG keep a white sheet; in dark
+mode it is framed as paper on the dark slab instead of filling the viewport.
+
+Hosts can override the surfaces the plugin owns; an explicit definition wins in
+either theme:
+
+| CSS variable | Applies to | Default |
+| --- | --- | --- |
+| `--dsh-cad-bg` | viewport background (any CSS `background` value) | light `#f5f6f8→#e9ecf0`, dark `#1b1b1c→#151517` |
+| `--dsh-cad-stroke` | default 2D entity stroke | `#4c5561` light / `#c8ced6` dark |
+| `--dsh-cad-paper` | drawing paper behind SVG sheets | `#ffffff` |
+
+```css
+:root { --dsh-cad-bg: #0b0d10; }          /* flat canvas in both themes */
+```
 
 ## Tests
 

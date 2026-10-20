@@ -5,6 +5,8 @@
 import React from 'react'
 import type { ReactNode } from 'react'
 import type { CadDrawing2D, CadEntity2D } from './scene-types.js'
+import { cadStrokeColor, getCadTheme } from './theme.js'
+import type { CadTheme } from './theme.js'
 
 export interface ViewBox {
   x: number
@@ -22,8 +24,8 @@ export function fitViewBox(drawing: CadDrawing2D): ViewBox {
   return { x: min.x - margin, y: -max.y - margin, width: width + margin * 2, height: height + margin * 2 }
 }
 
-function entityColor(entity: CadEntity2D): string {
-  return entity.color === undefined ? 'var(--dsh-cad-stroke, #4c5561)' : `#${entity.color.toString(16).padStart(6, '0')}`
+function entityColor(entity: CadEntity2D, theme: CadTheme): string {
+  return entity.color === undefined ? cadStrokeColor(theme) : `#${entity.color.toString(16).padStart(6, '0')}`
 }
 
 function polylinePoints(points: number[]): string {
@@ -45,16 +47,18 @@ function arcPath(cx: number, cy: number, r: number, startAngle: number, endAngle
   return `M ${x1.toFixed(4)} ${y1.toFixed(4)} A ${r.toFixed(4)} ${r.toFixed(4)} 0 ${largeArc} 1 ${x2.toFixed(4)} ${y2.toFixed(4)}`
 }
 
-/** Render the drawing's entities as React SVG children (inside the flipped group). */
-export function entityNodes(drawing: CadDrawing2D): ReactNode[] {
+/** Render the drawing's entities as React SVG children (inside the flipped
+ *  group). Uncolored entities use the theme's — or the host's — stroke. */
+export function entityNodes(drawing: CadDrawing2D, theme: CadTheme = getCadTheme()): ReactNode[] {
   return drawing.entities.map((entity, index) => {
     const key = `e${index}`
     // Engineering-drawing layer styling: hidden lines dash + lighten, visible
     // lines carry the heavier stroke; explicit colors still win.
     const isHidden = entity.layer === 'hidden'
     const isPaper = entity.layer === 'paper' || entity.layer === 'dim'
+    const stroke = entityColor(entity, theme)
     const style: Record<string, unknown> = {
-      stroke: entityColor(entity),
+      stroke,
       fill: 'none',
       strokeWidth: isHidden ? 1 : isPaper ? 1 : 1.6,
       vectorEffect: 'non-scaling-stroke' as const,
@@ -72,7 +76,7 @@ export function entityNodes(drawing: CadDrawing2D): ReactNode[] {
       case 'text':
         return (
           <g key={key} transform={`translate(${entity.x} ${entity.y}) scale(1 -1) rotate(${(entity.rotation ?? 0) * -1})`}>
-            <text x={0} y={0} fontSize={entity.height} fill={entityColor(entity)} style={{ userSelect: 'none' }}>
+            <text x={0} y={0} fontSize={entity.height} fill={stroke} style={{ userSelect: 'none' }}>
               {entity.text}
             </text>
           </g>

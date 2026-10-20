@@ -22,6 +22,7 @@ import { sceneVersion, setPollSession, useActiveDoc, useDocVersion, withDocVersi
 import type { DocKind } from './viewport.js'
 import { AssemblyTree, useAssemblyTree } from './assembly-tree.js'
 import { FeatureTree, useFeatureTree } from './feature-tree.js'
+import { cadCanvasBackground, useCadTheme } from './theme.js'
 
 // ── harness services (structural, defensive) ────────────────────────────────
 
@@ -908,6 +909,7 @@ function AssemblyTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
 /** 工程图: the drawing sheet (pan/zoom SVG), or an empty state. */
 function DrawingTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
   const { scene, error } = useScene(meta?.sceneUrl)
+  const theme = useCadTheme()
   if (meta === null) {
     return (
       <EmptyTabState
@@ -918,7 +920,7 @@ function DrawingTabBody({ meta }: { meta: CadViewMeta | null }): JSX.Element {
     )
   }
   return (
-    <div style={{ ...panelStyles.sceneFill, background: '#fff' }}>
+    <div style={{ ...panelStyles.sceneFill, background: cadCanvasBackground(theme) }}>
       <Viewport scene={scene} error={error} fill />
     </div>
   )
@@ -955,6 +957,7 @@ function statsLine(meta: CadViewMeta): string {
  */
 function EmptyPartStudio(): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
+  const theme = useCadTheme()
 
   useEffect(() => {
     const container = containerRef.current
@@ -968,7 +971,7 @@ function EmptyPartStudio(): JSX.Element {
   return (
     <div style={panelStyles.demoRoot}>
       <div style={panelStyles.demoCaption}>Part Studio</div>
-      <div style={panelStyles.demoViewport}>
+      <div style={{ ...panelStyles.demoViewport, background: cadCanvasBackground(theme) }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
       </div>
       <div style={panelStyles.demoHint}>
@@ -1399,7 +1402,6 @@ const panelStyles: Record<string, React.CSSProperties> = {
     minHeight: 0,
     borderRadius: 10,
     overflow: 'hidden',
-    background: 'var(--dsh-cad-bg, linear-gradient(#f5f6f8, #e9ecf0))',
   },
   demoHint: {
     flex: 'none',

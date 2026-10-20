@@ -9,6 +9,7 @@
  */
 import * as THREE from 'three'
 import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { cadScenePalette, getCadTheme, subscribeCadTheme } from './theme.js'
 
 const HALF = 0.85 // cube half-size in overlay units
 const CELLS = 3 // zone grid resolution per face
@@ -54,27 +55,26 @@ function zoneName(dir: THREE.Vector3): string {
   return parts.sort().join('-')
 }
 
-/** Face texture: soft fill, hairline border, centered label. */
-function faceTexture(name: string): THREE.CanvasTexture {
-  const canvas = document.createElement('canvas')
-  canvas.width = 128
-  canvas.height = 128
+/**
+ * Paint one face plate: soft fill, hairline border, centered label. The plate
+ * is a canvas texture, so it follows the host theme only if it is repainted —
+ * the constructor's theme subscription does that on a flip.
+ */
+function paintFace(canvas: HTMLCanvasElement, name: string, dark: boolean): void {
   const context = canvas.getContext('2d')
-  if (context !== null) {
-    context.fillStyle = 'rgba(246, 248, 251, 0.96)'
-    context.fillRect(0, 0, 128, 128)
-    context.strokeStyle = 'rgba(148, 158, 172, 0.9)'
-    context.lineWidth = 3
-    context.strokeRect(1.5, 1.5, 125, 125)
-    context.fillStyle = '#5b6472'
-    context.font = `600 ${name.length > 2 ? 24 : 28}px -apple-system, "Segoe UI", sans-serif`
-    context.textAlign = 'center'
-    context.textBaseline = 'middle'
-    context.fillText(name, 64, 66)
-  }
-  const texture = new THREE.CanvasTexture(canvas)
-  texture.anisotropy = 4
-  return texture
+  if (context === null) return
+  const colors = cadScenePalette(dark ? 'dark' : 'light')
+  context.clearRect(0, 0, 128, 128)
+  context.fillStyle = colors.cubeFill
+  context.fillRect(0, 0, 128, 128)
+  context.strokeStyle = colors.cubeBorder
+  context.lineWidth = 3
+  context.strokeRect(1.5, 1.5, 125, 125)
+  context.fillStyle = colors.cubeLabel
+  context.font = `600 ${name.length > 2 ? 24 : 28}px -apple-system, "Segoe UI", sans-serif`
+  context.textAlign = 'center'
+  context.textBaseline = 'middle'
+  context.fillText(name, 64, 66)
 }
 
 export interface ViewCubeOptions {
@@ -108,6 +108,10 @@ export class ViewCube {
     depthWrite: false,
   })
   private readonly disposables: Array<{ dispose(): void }> = [this.hiddenMaterial, this.highlightMaterial]
+  /** Face plate canvases + their textures, kept for a theme repaint. */
+  private readonly facePlates: Array<{ canvas: HTMLCanvasElement; name: string; texture: THREE.CanvasTexture }> = []
+  private dark = getCadTheme() === 'dark'
+  private readonly unsubscribeTheme: () => void
   private readonly raycaster = new THREE.Raycaster()
   private readonly overlay: HTMLDivElement
   private readonly caption: HTMLDivElement
@@ -156,6 +160,14 @@ export class ViewCube {
     scene.add(this.root)
     this.buildCube()
 
+    // The host theme can flip while the cube is mounted: repaint the plates.
+    this.unsubscribeTheme = subscribeCadTheme(() => {
+      const next = getCadTheme() === 'dark'
+      if (next === this.dark) return
+      this.dark = next
+      this.repaint()
+    })
+
     const pick = (event: PointerEvent): { zone: string | null; point: THREE.Vector3 | null } => {
       const rect = this.renderer.domElement.getBoundingClientRect()
       const ndc = new THREE.Vector2(
@@ -191,7 +203,13 @@ export class ViewCube {
       const group = new THREE.Group()
       group.quaternion.setFromRotationMatrix(basis)
 
-      const texture = faceTexture(face.name)
+      const canvas = document.createElement('canvas')
+      canvas.width = 128
+      canvas.height = 128
+      paintFace(canvas, face.name, this.dark)
+      const texture = new THREE.CanvasTexture(canvas)
+      texture.anisotropy = 4
+      this.facePlates.push({ canvas, name: face.name, texture })
       this.disposables.push(texture)
       const labelMaterial = new THREE.MeshBasicMaterial({ map: texture, transparent: true })
       this.disposables.push(labelMaterial)
@@ -219,6 +237,14 @@ export class ViewCube {
         }
       }
       this.root.add(group)
+    }
+  }
+
+  /** Repaint the six face plates for the current theme. */
+  private repaint(): void {
+    for (const plate of this.facePlates) {
+      paintFace(plate.canvas, plate.name, this.dark)
+      plate.texture.needsUpdate = true
     }
   }
 
@@ -275,6 +301,7 @@ export class ViewCube {
   dispose(): void {
     if (this.disposed) return
     this.disposed = true
+    this.unsubscribeTheme()
     cancelAnimationFrame(this.tweenId)
     this.controls.enabled = true
     for (const disposable of this.disposables) disposable.dispose()

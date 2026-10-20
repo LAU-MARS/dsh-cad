@@ -11,6 +11,8 @@ import { mountViewer3D } from './viewer3d.js'
 import type { LiveViewer3DHandle, RenderMode } from './viewer3d.js'
 import { entityNodes, fitViewBox } from './viewer2d.js'
 import type { ViewBox } from './viewer2d.js'
+import { cadCanvasBackground, cadPaperColor, useCadTheme } from './theme.js'
+import type { CadTheme } from './theme.js'
 
 /** Render-mode cycle order + button labels (shared by editor and cards). */
 export const RENDER_MODES: RenderMode[] = ['shaded-edges', 'shaded', 'wireframe']
@@ -198,10 +200,19 @@ export function Viewport({ scene, error, height, fill, lazy, highlight, hidden }
   return <div style={styles.placeholder}>loading…</div>
 }
 
+/** The sized viewport slab for the current theme (fixed height or flex fill). */
+function surfaceStyle(fill: boolean | undefined, height: number | string | undefined, theme: CadTheme): React.CSSProperties {
+  return {
+    ...(fill === true ? fillStyles.viewport : { ...styles.viewport, height: height ?? 360 }),
+    background: cadCanvasBackground(theme),
+  }
+}
+
 function Viewport3D({ scene, height, fill, lazy, highlight, hidden }: { scene: Extract<CadScene, { kind: '3d' }> } & ViewportSizing & { lazy?: boolean }): JSX.Element {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const handleRef = useRef<LiveViewer3DHandle | null>(null)
   const [renderMode, setRenderMode] = useState<RenderMode>('shaded-edges')
+  const theme = useCadTheme()
   // Tracks what the handle already displays: the mount effect loads the
   // initial scene, so the first run of the update effect must not re-apply it.
   const appliedRef = useRef(scene)
@@ -282,7 +293,7 @@ function Viewport3D({ scene, height, fill, lazy, highlight, hidden }: { scene: E
 
   return (
     <div style={fill === true ? fillStyles.wrap : styles.viewportWrap}>
-      <div ref={containerRef} style={fill === true ? fillStyles.viewport : { ...styles.viewport, height: height ?? 360 }} />
+      <div ref={containerRef} style={surfaceStyle(fill, height, theme)} />
       <div style={styles.toolbar}>
         <button type="button" style={styles.button} onClick={cycleRenderMode} aria-pressed={renderMode === 'wireframe'}>
           {RENDER_MODE_LABELS[renderMode]}
@@ -299,6 +310,7 @@ function Viewport2D({ scene, height, fill }: { scene: Extract<CadScene, { kind: 
   const [viewBox, setViewBox] = useState<ViewBox>(() => fitViewBox(scene))
   const dragRef = useRef<{ x: number; y: number; viewBox: ViewBox } | null>(null)
   const fit = useCallback(() => setViewBox(fitViewBox(scene)), [scene])
+  const theme = useCadTheme()
 
   const onWheel = useCallback((event: React.WheelEvent<SVGSVGElement>) => {
     event.preventDefault()
@@ -342,8 +354,20 @@ function Viewport2D({ scene, height, fill }: { scene: Extract<CadScene, { kind: 
     const dataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(scene.svgText)))}`
     return (
       <div style={fill === true ? fillStyles.wrap : styles.viewportWrap}>
-        <div style={{ ...(fill === true ? fillStyles.viewport : { ...styles.viewport, height: height ?? 360 }), display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#ffffff' }}>
-          <img src={dataUrl} alt={scene.format} style={{ maxWidth: '100%', maxHeight: '100%' }} />
+        {/* A drawing is paper: keep the sheet light, but frame it on the
+            themed slab so it reads as a sheet instead of a light viewport. */}
+        <div style={{ ...surfaceStyle(fill, height, theme), display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, boxSizing: 'border-box' }}>
+          <img
+            src={dataUrl}
+            alt={scene.format}
+            style={{
+              maxWidth: '100%',
+              maxHeight: '100%',
+              background: cadPaperColor(theme),
+              borderRadius: 2,
+              boxShadow: '0 1px 2px rgba(16,24,40,0.18), 0 12px 30px -16px rgba(16,24,40,0.45)',
+            }}
+          />
         </div>
         <div style={styles.toolbar} />
       </div>
@@ -354,14 +378,14 @@ function Viewport2D({ scene, height, fill }: { scene: Extract<CadScene, { kind: 
     <div style={fill === true ? fillStyles.wrap : styles.viewportWrap}>
       <svg
         viewBox={`${viewBox.x} ${viewBox.y} ${viewBox.width} ${viewBox.height}`}
-        style={{ ...(fill === true ? fillStyles.viewport : { ...styles.viewport, height: height ?? 360 }), cursor: dragRef.current === null ? 'default' : 'grabbing', touchAction: 'none' }}
+        style={{ ...surfaceStyle(fill, height, theme), cursor: dragRef.current === null ? 'default' : 'grabbing', touchAction: 'none' }}
         onWheel={onWheel}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerLeave={onPointerUp}
       >
-        <g transform="scale(1 -1)">{entityNodes(scene)}</g>
+        <g transform="scale(1 -1)">{entityNodes(scene, theme)}</g>
       </svg>
       <div style={styles.toolbar}>
         <button type="button" style={styles.button} onClick={fit}>
@@ -376,7 +400,6 @@ export const styles: Record<string, React.CSSProperties> = {
   viewportWrap: { position: 'relative' },
   viewport: {
     width: '100%',
-    background: 'var(--dsh-cad-bg, linear-gradient(#f5f6f8, #e9ecf0))',
     display: 'block',
   },
   toolbar: {
@@ -422,7 +445,6 @@ const fillStyles: Record<string, React.CSSProperties> = {
     flex: '1 1 auto',
     minHeight: 0,
     width: '100%',
-    background: 'var(--dsh-cad-bg, linear-gradient(#f5f6f8, #e9ecf0))',
     display: 'block',
   },
 }
