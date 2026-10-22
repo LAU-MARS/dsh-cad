@@ -11,9 +11,10 @@ dsh-cad 的内核后端策略：**经由 [cadorange](https://github.com/LAU-MARS
   体积/描述/导出/草图渲染），不再有 "unsupported" 存根。
 - **双门禁全绿**：`npm test`（默认内核）与 `DSH_CAD_KERNEL=cadorange npm test`
   均通过全部用例（精确体积断言不变），满足下方切换判据。
-- 默认内核链暂为 occt.ts 直连 → opencascade.js；cadorange 为显式 opt-in
-  （`DSH_CAD_KERNEL=cadorange`，不可解析或 init 失败 → 干净报错）。下方切换
-  判据已全部达成，翻转默认链只差 `boot()` 的顺序调整。
+- 默认内核链已翻转：**cadorange → occt.ts 直连 → opencascade.js**（逐级
+  回退；cadorange 启动失败会以警告降级到直连后端，不挂死）。显式
+  `DSH_CAD_KERNEL=cadorange` 仍为硬性要求（不可解析或 init 失败 → 干净报错），
+  `DSH_CAD_KERNEL=occt.ts|opencascade.js` 可强制指定下层。
 
 ## 构成
 
@@ -53,8 +54,8 @@ worker 在 body 替换（fillet/chamfer/shell/draft/transform/boolean）、布�
 
 1. ✅ `init()` 真实加载内核（cadorange 0.9.0，occt.ts ^1.1.0）
 2. ✅ `tessellate` / HLR 经逃生口可用（查看器与工程图正常）
-3. ✅ `DSH_CAD_KERNEL=cadorange` 下全套测试通过（189 passed / 3 skipped，
-   精确体积断言与默认内核一致）
+3. ✅ `DSH_CAD_KERNEL=cadorange` 下全套测试通过（190 passed / 3 skipped，
+   精确体积断言与直连后端一致；默认链翻转后同一套在无环境变量下复跑全绿）
 
 ## 测试
 

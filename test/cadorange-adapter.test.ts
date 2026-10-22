@@ -43,6 +43,22 @@ describe('cadorange bridge resolution', () => {
 })
 
 describe('cadorange worker boot', () => {
+  it('the DEFAULT chain boots cadorange first (installed dependency)', { timeout: 90_000 }, async () => {
+    const env = { ...process.env }
+    delete env.DSH_CAD_KERNEL
+    const worker = new Worker(new URL('../src/modeling/modeling-worker.cjs', import.meta.url), { env })
+    try {
+      const message = await new Promise<{ ok: boolean; result?: { kernel?: string } }>((resolve, reject) => {
+        worker.once('message', resolve)
+        worker.once('error', reject)
+      })
+      expect(message.ok).toBe(true)
+      expect(message.result?.kernel).toBe('cadorange')
+    } finally {
+      await worker.terminate()
+    }
+  })
+
   it('DSH_CAD_KERNEL=cadorange reports kernel: cadorange', { timeout: 90_000 }, async () => {
     const worker = new Worker(new URL('../src/modeling/modeling-worker.cjs', import.meta.url), {
       env: { ...process.env, DSH_CAD_KERNEL: 'cadorange' },

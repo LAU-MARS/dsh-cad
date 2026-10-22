@@ -41,7 +41,7 @@ Cumulative downloads from the npm registry, refreshed daily by CI:
 
 | Capability | Description |
 | --- | --- |
-| ⚙️ Single-kernel architecture | **occt.ts as the primary modeling kernel** (true B-splines, native shell/draft, centroid); opencascade.js stays only as the fallback backend; the old "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
+| ⚙️ Kernel chain: cadorange → occt.ts → opencascade.js | Modeling goes through **[cadorange](https://github.com/LAU-MARS/cadorange)** (the agent-native CAD runtime wrapping the same occt.ts/OCCT WASM; public API + the supported `cadorange/occt` escape hatch for meshing/HLR/wire construction); the direct occt.ts adapter and opencascade.js stay as fallback tiers — `DSH_CAD_KERNEL` pins one explicitly. The old "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive viewport in the resident right panel (orbit / zoom / wireframe / pan), with a one-line result row in the conversation |
 | 🌗 Dark-mode surfaces | Every rendered surface follows the host theme — viewport slab, DXF/drawing strokes, the Three.js grid / XYZ triad / feature edges / default mesh color / sketch overlays, and the ViewCube plate; a theme flip restyles mounted viewers live. Overrides: `--dsh-cad-bg`, `--dsh-cad-stroke`, `--dsh-cad-paper` |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
@@ -214,12 +214,15 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   exponential-map rotation, radians). Solver capability is staged
   (point-distance-to-origin today) — the plumbing contract is finished and needs
   no changes as it grows
-- **Single-kernel architecture**: the primary modeling kernel is
-  **occt.ts** — primitives, curve-segment profiles (TRUE B-spline
-  interpolation), loft/sweep/revolve, booleans, fillet/chamfer, shell/draft,
-  mirror (composed as scale(-1) + a π rotation) and centroid all live in one
-  session; engineering-drawing HLR takes the shape directly (zero STEP hops);
-  editing after shelling is seamless (the old hosted-body seam is deleted).
+- **Kernel chain**: modeling goes through **cadorange** (agent-native CAD
+  runtime; public build123d-style API for prims/curve-segment profiles (TRUE
+  B-spline interpolation)/loft/sweep/revolve/booleans (cleaned by default)/
+  fillet/chamfer/shell/draft/native mirror/centroid, plus the supported
+  `cadorange/occt` escape hatch for viewer tessellation, engineering-drawing
+  HLR (zero STEP hops, one wasm session) and wire construction); the direct
+  occt.ts adapter and opencascade.js stay as fallback tiers
+  (`DSH_CAD_KERNEL` pins one; see docs/cadorange-integration.md for the
+  verb-by-verb mapping). Editing after shelling is seamless.
   opencascade.js remains as the FALLBACK backend (auto-selected when occt.ts
   cannot load). Assembly STEP export writes a **structured document** (occt.ts
   `writeStepDocument`): one root product plus one named, placed child

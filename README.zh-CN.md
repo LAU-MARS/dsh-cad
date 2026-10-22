@@ -38,7 +38,7 @@ npm 官方源的累计下载量，由 CI 每日刷新：
 
 | 能力 | 说明 |
 | --- | --- |
-| ⚙️ 单内核架构 | **occt.ts 为主建模内核**（真 BSpline、抽壳/拔模原生、质心），opencascade.js 仅作为加载失败时的降级后端；旧版的「抽壳后不可编辑」接缝消失——抽壳/拔模后可继续圆角/倒角/布尔 |
+| ⚙️ 内核链：cadorange → occt.ts → opencascade.js | 建模经 **[cadorange](https://github.com/LAU-MARS/cadorange)**（agent 原生 CAD 运行时，底层同一 occt.ts/OCCT WASM；公共 API + 官方 `cadorange/occt` 逃生口承担网格/HLR/线构造），occt.ts 直连与 opencascade.js 保留为回退层级——`DSH_CAD_KERNEL` 可显式指定。旧版的「抽壳后不可编辑」接缝消失——抽壳/拔模后可继续圆角/倒角/布尔 |
 | 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP / DCPRT（3D），DXF / SVG（2D），右侧常驻面板交互视口（轨道旋转 / 缩放 / 线框 / 平移），对话中只留一行结果摘要 |
 | 🌗 深色模式绘制面 | 所有绘制面跟随宿主主题——视口底板、DXF/工程图描边、Three.js 网格 / XYZ 轴 / 特征边 / 默认网格色 / 草图覆盖层，以及 ViewCube 面板；主题切换实时重绘已挂载的查看器。覆盖钩子：`--dsh-cad-bg`、`--dsh-cad-stroke`、`--dsh-cad-paper` |
 | 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
@@ -197,10 +197,12 @@ cad_view(path)                        建模工具（cad_create_prim 等）
   原样透出给 LLM。装配实例位姿（平移 + XYZ 欧拉度）与求解器 rigid3（平移 + 指数映射
   旋转，弧度）双向映射。求解器能力按阶段推进（当前支持点到原点距离），管道契约
   已就绪、无需随求解器成长改动
-- **单内核架构**：建模主内核为 **occt.ts**——prims/曲线段轮廓
-  （真 BSpline 插值）/放样/扫掠/旋转/布尔/圆角/倒角/抽壳/拔模/镜像（scale(-1)+
-  旋转 π 组合）/质心全在一个会话内，工程图 HLR 直接吃 shape（零 STEP 中转），
-  抽壳后继续编辑无缝（旧托管接缝已删除）。opencascade.js 保留为**降级后端**
+- **内核链**：建模经 **cadorange**（agent 原生 CAD 运行时；build123d 风格
+  公共 API 承担 prims/曲线段轮廓（真 BSpline 插值）/放样/扫掠/旋转/布尔
+  （默认同域清理）/圆角/倒角/抽壳/拔模/原生镜像/质心，官方 `cadorange/occt`
+  逃生口承担查看器网格、工程图 HLR（零 STEP 中转、单一 wasm 会话）与线构造）；
+  occt.ts 直连与 opencascade.js 保留为回退层级（`DSH_CAD_KERNEL` 可显式指定，
+  动词级映射见 docs/cadorange-integration.md）。抽壳后继续编辑无缝。opencascade.js 保留为**降级后端**
   （occt.ts 加载失败时自动启用）。装配体 STEP 导出为**结构化文档**（occt.ts
   `writeStepDocument`）：一个根产品 + 每实例一个命名、带位姿的子产品——
   实例分离在文件中保留（STL 仍为单一熔合网格；降级后端同样走 fuse）。fuse
