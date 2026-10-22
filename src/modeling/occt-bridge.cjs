@@ -490,4 +490,4 @@ function simplify(points, epsilon) {
   return out
 }
 
-module.exports = { createOcctBridge, resolveDistDir, loadSharedOcctModule }
+module.exports = { createOcctBridge, resolveDistDir, loadSharedOcctModule, chainSegments, simplify }

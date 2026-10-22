@@ -1,94 +1,49 @@
 /**
- * cadorange backend seam (cadorange-adapter branch): the adapter maps
- * dsh-cad's 21-verb kernel surface onto cadorange's public API, with loud
- * structured errors for verbs cadorange hasn't reached yet. Tested against a
- * mock cadorange module (the real one's kernel init lands with cadorange M0);
- * plus the worker's kernel-selection wiring against the real resolution
- * chain (DSH_CAD_KERNEL=cadorange).
+ * cadorange backend (opt-in, DSH_CAD_KERNEL=cadorange): the adapter now
+ * implements the FULL verb surface against cadorange 0.9.0's public API plus
+ * the supported cadorange/occt escape hatch (tessellation, HLR, wire
+ * construction). cadorange is an installed dependency, so the parity gate
+ * runs REAL geometry through the actual modeling worker: exact volume
+ * assertions (the same analytic values the occt.ts backend is held to),
+ * meshes, STEP/STL bytes and true-HLR drawing views.
  */
+process.env.DSH_CAD_KERNEL = 'cadorange'
+
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { Worker } from 'node:worker_threads'
-import { createCadorangeAdapter } from '../src/modeling/cadorange-adapter.cjs'
-import { resolveCadorangeEntry } from '../src/modeling/cadorange-bridge.cjs'
+import { runModelOp } from '../src/modeling/client.js'
+import { resolveCadorangeDist } from '../src/modeling/cadorange-bridge.cjs'
 
-/** Minimal cadorange surface double: records calls, returns fake shapes. */
-function makeFakeCadorange() {
-  const calls: Array<{ fn: string; args: unknown[] }> = []
-  const shape = (name: string, vol: number) => ({
-    tag: name,
-    volume: () => vol,
-    describe: () => ({ volume: vol, valid: true, faces: 6, edges: 12 }),
-    edges: () => ['e1', 'e2'],
-    cut: (tool: unknown) => shape(`${name}-cut`, vol - 1),
-    fuse: (tool: unknown) => shape(`${name}-fuse`, vol + 1),
-  })
-  const cad = {
-    calls,
-    init: async () => {},
-    Box: (...args: unknown[]) => (calls.push({ fn: 'Box', args }), shape('box', 2 * 3 * 4)),
-    Cylinder: (opts: { radius: number; height: number }) => shape('cyl', Math.PI * opts.radius ** 2 * opts.height),
-    Sphere: () => shape('sphere', 1),
-    Cone: () => shape('cone', 1),
-    Torus: () => shape('torus', 1),
-    fillet: (...args: unknown[]) => (calls.push({ fn: 'fillet', args }), shape('filleted', 1)),
-    chamfer: (...args: unknown[]) => (calls.push({ fn: 'chamfer', args }), shape('chamfered', 1)),
-    fuse: (a: unknown, b: unknown) => shape('fused', 1),
-    cut: (a: unknown, b: unknown) => shape('cutted', 1),
-    common: (a: unknown, b: unknown) => shape('commoned', 1),
-  }
-  return cad
-}
-
-describe('cadorange adapter', () => {
-  it('delegates prims / booleans / filletAll to the cadorange API', () => {
-    const cad = makeFakeCadorange()
-    const adapter = createCadorangeAdapter(cad)
-    expect(adapter.kernel).toBe('cadorange')
-
-    const box = adapter.makePrim('box', { dx: 2, dy: 3, dz: 4 })
-    expect(cad.calls[0]).toEqual({ fn: 'Box', args: [2, 3, 4] })
-    expect(adapter.volume(box)).toBe(24)
-    expect(adapter.isValid(box)).toBe(true)
-
-    const cyl = adapter.makePrim('cylinder', { radius: 3, height: 10 })
-    expect(adapter.volume(cyl)).toBeCloseTo(Math.PI * 9 * 10, 6)
-
-    adapter.boolean('cut', box, [cyl])
-    expect((box as { tag: string }).tag).toBe('box')
-    adapter.boolean('fuse', box, [cyl])
-
-    adapter.filletAll(box, 3)
-    expect(cad.calls.at(-1)).toEqual({ fn: 'fillet', args: [['e1', 'e2'], 3] })
-    adapter.chamferAll(box, 1.5)
-    expect(cad.calls.at(-1)).toEqual({ fn: 'chamfer', args: [['e1', 'e2'], 1.5] })
-  })
-
-  it('unsupported verbs fail loudly with the milestone hint', () => {
-    const adapter = createCadorangeAdapter(makeFakeCadorange())
-    expect(() => adapter.shell({}, 2, [])).toThrow(/not support shell yet.*M1/)
-    expect(() => adapter.makeLoft([], {})).toThrow(/not support loft yet/)
-    expect(() => adapter.tessellate({})).toThrow(/tessellate/)
-    expect(() => adapter.makePrim('wedge' as never, {})).toThrow(/unknown prim kind/)
-  })
+afterAll(() => {
+  delete process.env.DSH_CAD_KERNEL
 })
 
 describe('cadorange bridge resolution', () => {
-  it('honors DSH_CADORANGE pointing at a package root', async () => {
+  it('resolves the installed cadorange dist (core + escape hatch)', () => {
+    const dist = resolveCadorangeDist()
+    expect(dist).toBeTruthy()
+    expect(dist).toMatch(/cadorange/)
+  })
+
+  it('honors DSH_CADORANGE pointing at a package root, requiring the escape hatch too', async () => {
     const dir = await mkdtemp(path.join(tmpdir(), 'dsh-cad-cadorange-'))
-    await mkdir(path.join(dir, 'dist'), { recursive: true })
+    await mkdir(path.join(dir, 'dist', 'occt'), { recursive: true })
     await writeFile(path.join(dir, 'dist', 'index.js'), 'export const ok = true\n')
+    await writeFile(path.join(dir, 'dist', 'occt', 'index.js'), 'export const ok = true\n')
     process.env.DSH_CADORANGE = dir
     try {
-      expect(resolveCadorangeEntry()).toBe(path.join(dir, 'dist', 'index.js'))
+      expect(resolveCadorangeDist()).toBe(path.join(dir, 'dist'))
     } finally {
       delete process.env.DSH_CADORANGE
     }
   })
+})
 
-  it('DSH_CAD_KERNEL=cadorange boots the worker onto the cadorange branch', { timeout: 60_000 }, async () => {
+describe('cadorange worker boot', () => {
+  it('DSH_CAD_KERNEL=cadorange reports kernel: cadorange', { timeout: 90_000 }, async () => {
     const worker = new Worker(new URL('../src/modeling/modeling-worker.cjs', import.meta.url), {
       env: { ...process.env, DSH_CAD_KERNEL: 'cadorange' },
     })
@@ -98,16 +53,152 @@ describe('cadorange bridge resolution', () => {
         worker.once('error', reject)
       })
       expect(message.jobId).toBe(0)
-      if (message.ok) {
-        // cadorange's kernel init has landed: the backend reports itself.
-        expect(message.result?.kernel).toBe('cadorange')
-      } else {
-        // Today: init() is a skeleton stub (or cadorange is unresolvable) —
-        // either way the failure is clean and names the backend.
-        expect(message.error).toMatch(/cadorange/)
-      }
+      expect(message.ok).toBe(true)
+      expect(message.result?.kernel).toBe('cadorange')
     } finally {
       await worker.terminate()
     }
+  })
+})
+
+describe('cadorange backend parity (real kernel)', () => {
+  it('creates a box and cuts an exact-volume hole', { timeout: 120_000 }, async () => {
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'b1', prim: 'box', params: { dx: 100, dy: 60, dz: 10 } })
+    await runModelOp({ kind: 'create_prim', bodyId: 'hole', prim: 'cylinder', params: { radius: 10, height: 20, at: [50, 30, 0] } })
+    const cut = await runModelOp({ kind: 'boolean', op: 'cut', target: 'b1', tools: ['hole'] })
+    expect(cut.bodyId).toBe('b1')
+    expect(cut.removed).toContain('hole')
+    expect(cut.mesh!.triangleCount).toBeGreaterThanOrEqual(12)
+    const volume = await runModelOp({ kind: 'volume', target: 'b1' })
+    expect(volume.volume).toBeCloseTo(100 * 60 * 10 - Math.PI * 10 * 10 * 10, 0)
+  })
+
+  it('extrudes flat / circle / curve-segment profiles exactly', { timeout: 120_000 }, async () => {
+    await runModelOp({ kind: 'reset' })
+    const points = [0, 0, 40, 0, 40, 10, 10, 10, 10, 30, 0, 30]
+    await runModelOp({ kind: 'extrude_profile', bodyId: 'L', points, height: 5 })
+    const lVolume = await runModelOp({ kind: 'volume', target: 'L' })
+    expect(lVolume.volume).toBeCloseTo(3000, 0) // (40×10 + 10×20) × 5
+
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'extrude_profile', bodyId: 'disc', profile: { circle: { center: [0, 0], radius: 10 } }, height: 5 })
+    const disc = await runModelOp({ kind: 'volume', target: 'disc' })
+    expect(disc.volume).toBeCloseTo(Math.PI * 100 * 5, 0)
+
+    // Stadium: two lines + two half-circle arcs (exact arcs through the hatch).
+    await runModelOp({ kind: 'reset' })
+    const stadium = {
+      start: [-20, -10],
+      segments: [
+        { type: 'line', to: [20, -10] },
+        { type: 'arc', to: [20, 10], center: [20, 0], ccw: true },
+        { type: 'line', to: [-20, 10] },
+        { type: 'arc', to: [-20, -10], center: [-20, 0], ccw: true },
+      ],
+    }
+    await runModelOp({ kind: 'extrude_profile', bodyId: 'stadium', profile: stadium, height: 4 })
+    const sVolume = await runModelOp({ kind: 'volume', target: 'stadium' })
+    expect(sVolume.volume).toBeCloseTo((40 * 20 + Math.PI * 100) * 4, 0)
+  })
+
+  it('revolves, lofts (plain/smooth/profile sections) and sweeps valid solids', { timeout: 120_000 }, async () => {
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'revolve', bodyId: 'ring', profile: [20, 0, 30, 0, 30, 5, 20, 5] })
+    const ring = await runModelOp({ kind: 'volume', target: 'ring' })
+    expect(ring.volume).toBeCloseTo(2500 * Math.PI, 0) // Pappus: 2π·25·50
+
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({
+      kind: 'loft',
+      bodyId: 'loft1',
+      sections: [
+        [-20, -20, 0, 20, -20, 0, 20, 20, 0, -20, 20, 0],
+        [-10, -10, 20, 10, -10, 20, 10, 10, 20, -10, 10, 20],
+      ],
+    })
+    const loftVolume = await runModelOp({ kind: 'volume', target: 'loft1' })
+    expect(loftVolume.volume).toBeGreaterThan(0)
+
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({
+      kind: 'loft',
+      bodyId: 'smooth',
+      sections: [
+        { points: [-20, -20, 0, 20, -20, 0, 20, 20, 0, -20, 20, 0] },
+        { points: [-10, -10, 20, 10, -10, 20, 10, 10, 20, -10, 10, 20] },
+      ],
+      smooth: true,
+    })
+    const smoothVolume = await runModelOp({ kind: 'volume', target: 'smooth' })
+    expect(smoothVolume.volume).toBeGreaterThan(0)
+
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({
+      kind: 'sweep',
+      bodyId: 'pipe',
+      profile: { circle: { center: [0, 0], radius: 3 } },
+      path: [0, 0, 0, 0, 0, 20],
+    })
+    const pipe = await runModelOp({ kind: 'volume', target: 'pipe' })
+    expect(pipe.volume).toBeCloseTo(Math.PI * 9 * 20, 0)
+  })
+
+  it('fillets, shells (open face by normal) and drafts', { timeout: 120_000 }, async () => {
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'box', prim: 'box', params: { dx: 40, dy: 40, dz: 10 } })
+    const filleted = await runModelOp({ kind: 'fillet', target: 'box', radius: 2 })
+    expect(filleted.mesh!.triangleCount).toBeGreaterThan(12)
+    const fVolume = await runModelOp({ kind: 'volume', target: 'box' })
+    expect(fVolume.volume).toBeLessThan(40 * 40 * 10)
+
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'box', prim: 'box', params: { dx: 20, dy: 20, dz: 20 } })
+    const shelled = await runModelOp({ kind: 'shell', target: 'box', thickness: 2, openNormals: [[0, 0, 1]] })
+    expect(shelled.volume).toBeCloseTo(20 ** 3 - 16 * 16 * 18, 0)
+
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'box', prim: 'box', params: { dx: 20, dy: 20, dz: 20 } })
+    const drafted = await runModelOp({ kind: 'draft', target: 'box', angle: 5 })
+    expect(drafted.volume).not.toBeCloseTo(20 ** 3, 0)
+  })
+
+  it('transforms (translate/rotate/mirror) preserve volume', { timeout: 120_000 }, async () => {
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'box', prim: 'box', params: { dx: 10, dy: 10, dz: 10 } })
+    await runModelOp({ kind: 'transform', target: 'box', translate: [100, 0, 0], rotate: [0, 0, 45], mirror: [1, 0, 0] })
+    const moved = await runModelOp({ kind: 'volume', target: 'box' })
+    expect(moved.volume).toBeCloseTo(1000, 0)
+    expect(moved.centroid).toBeDefined()
+  })
+
+  it('exports STEP bytes and structured assembly STEP', { timeout: 120_000 }, async () => {
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'b1', prim: 'box', params: { dx: 30, dy: 20, dz: 10 } })
+    const step = await runModelOp({ kind: 'export', target: 'b1', format: 'step' })
+    expect(Buffer.from(step.bytes!).toString('latin1').startsWith('ISO-10303-21')).toBe(true)
+
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'a', prim: 'box', params: { dx: 20, dy: 20, dz: 5 } })
+    await runModelOp({ kind: 'create_prim', bodyId: 'b', prim: 'sphere', params: { radius: 5 } })
+    await runModelOp({ kind: 'assembly_insert', instanceId: 'i1', bodyId: 'a', name: 'plate' })
+    await runModelOp({ kind: 'assembly_insert', instanceId: 'i2', bodyId: 'b', name: 'ball', translate: [10, 10, 5], rotate: [0, 90, 0] })
+    const asm = await runModelOp({ kind: 'export_assembly', format: 'step' })
+    const text = Buffer.from(asm.bytes!).toString('latin1')
+    expect(text.startsWith('ISO-10303-21')).toBe(true)
+    expect(text).toContain('plate')
+    expect(text).toContain('ball')
+  })
+
+  it('projects true hidden-line drawing views (same kernel session)', { timeout: 120_000 }, async () => {
+    await runModelOp({ kind: 'reset' })
+    await runModelOp({ kind: 'create_prim', bodyId: 'b1', prim: 'box', params: { dx: 100, dy: 60, dz: 10 } })
+    await runModelOp({ kind: 'create_prim', bodyId: 'hole', prim: 'cylinder', params: { radius: 10, height: 30, at: [50, 30, -10] } })
+    await runModelOp({ kind: 'boolean', op: 'cut', target: 'b1', tools: ['hole'] })
+    const drawing = await runModelOp({ kind: 'drawing', target: 'b1' })
+    expect(drawing.views!.length).toBe(4)
+    const front = drawing.views!.find((view) => view.name === 'front')
+    expect(front).toBeDefined()
+    expect(front!.visible.length + front!.hidden.length).toBeGreaterThan(0)
   })
 })
