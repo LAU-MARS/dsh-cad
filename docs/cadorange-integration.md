@@ -4,7 +4,7 @@ dsh-cad 的内核后端策略：**经由 [cadorange](https://github.com/LAU-MARS
 （agent 原生 CAD 运行时，底层 occt.ts/OCCT WASM）建模，公共 API 覆盖不到的
 绘制面走其**官方逃生口** `cadorange/occt`（ADR-0001：共存而非包裹）。
 
-## 当前状态（v0.14.1 之后）
+## 当前状态（v0.15.0 起）
 
 - **适配层已全量落地**：`src/modeling/cadorange-adapter.cjs` 实现 dsh-cad 全部
   内核动词（原语/布尔/圆角/倒角/抽壳/拔模/拉伸/旋转/放样/扫掠/变换/阵列支撑/
