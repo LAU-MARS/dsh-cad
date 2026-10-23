@@ -1,9 +1,7 @@
 /**
- * Shell (抽壳) and draft (拔模) — the two ops that only the occt.ts kernel
- * provides (opencascade.js binds them as opaque no-method shells). Geometry
- * crosses kernels as STEP bytes; the result stays HOSTED on the occt.ts side,
- * which the tests also verify (volume via the bridge, refusal of
- * opencascade.js-only edits, .step export straight from the hosted bytes).
+ * Shell (抽壳) and draft (拔模) — native occt.ts ops (surfaced through every
+ * kernel tier), with the loud no-op guard from issue #6: a kernel that
+ * returns the solid unchanged fails instead of reporting success.
  *
  * Exact expectations:
  *  - shell box 10³ t=1 open top → 1000 − interior 8×8×9 = 424

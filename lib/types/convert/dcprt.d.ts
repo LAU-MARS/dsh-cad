@@ -3,7 +3,7 @@
  * history on the OCCT worker, and tessellate the rebuilt bodies into
  * indexed CadMeshes.
  *
- * Replay runs on the SHARED worker (via runModelOp): the opencascade.js WASM
+ * Replay runs on the SHARED worker (via runModelOp): the modeling kernel
  * heap is too large for a second concurrent instance. Every replay posts a
  * `reset`, which bumps the client's reset epoch — the live modeling session
  * detects the stale epoch and re-replays its own document before the next

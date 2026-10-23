@@ -17,7 +17,7 @@
  * describe/volume/centroid and STEP/STL/STEP-assembly export.
  *
  * Opt-in backend: `DSH_CAD_KERNEL=cadorange`. The default chain stays
- * occt.ts → opencascade.js until this backend holds the parity gate.
+ * direct-occt.ts tier as the fallback (the opencascade.js tier was removed in v0.15.1).
  */
 'use strict'
 

@@ -38,7 +38,7 @@ npm 官方源的累计下载量，由 CI 每日刷新：
 
 | 能力 | 说明 |
 | --- | --- |
-| ⚙️ 内核链：cadorange → occt.ts → opencascade.js | 建模经 **[cadorange](https://github.com/LAU-MARS/cadorange)**（agent 原生 CAD 运行时，底层同一 occt.ts/OCCT WASM；公共 API + 官方 `cadorange/occt` 逃生口承担网格/HLR/线构造），occt.ts 直连与 opencascade.js 保留为回退层级——`DSH_CAD_KERNEL` 可显式指定。旧版的「抽壳后不可编辑」接缝消失——抽壳/拔模后可继续圆角/倒角/布尔 |
+| ⚙️ 内核链：cadorange → occt.ts | 建模经 **[cadorange](https://github.com/LAU-MARS/cadorange)**（agent 原生 CAD 运行时，底层 occt.ts/OCCT WASM；公共 API + 官方 `cadorange/occt` 逃生口承担网格/HLR/线构造），occt.ts 直连保留为回退层级——`DSH_CAD_KERNEL` 可显式指定（opencascade.js 档已于 v0.15.1 移除，安装体积 −64MB）。旧版的「抽壳后不可编辑」接缝消失——抽壳/拔模后可继续圆角/倒角/布尔 |
 | 🔍 CAD 查看 | STL / OBJ / STEP / IGES / BREP / DCPRT（3D），DXF / SVG（2D），右侧常驻面板交互视口（轨道旋转 / 缩放 / 线框 / 平移），对话中只留一行结果摘要 |
 | 🌗 深色模式绘制面 | 所有绘制面跟随宿主主题——视口底板、DXF/工程图描边、Three.js 网格 / XYZ 轴 / 特征边 / 默认网格色 / 草图覆盖层，以及 ViewCube 面板；主题切换实时重绘已挂载的查看器。覆盖钩子：`--dsh-cad-bg`、`--dsh-cad-stroke`、`--dsh-cad-paper` |
 | 🧭 CAD 编辑器交互 | Onshape 风格 ViewCube（26 区域点击定向）、悬停/点选面与边实时测量（面积 mm² / 长度 mm）、面+边 / 面 / 线框三种渲染模式、支架 / 法兰 / 轴 BRep 示例件一键切换 |
@@ -146,7 +146,7 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 
 ## 连接器（规划中）
 
-建模主要由 **occt.ts** 内核承担（opencascade.js 为降级后端）（浏览器内的 OCCT 内核，零安装）；
+建模经 **cadorange** 跑在 **occt.ts** 内核上（浏览器内的 OCCT 内核，零安装）；
 下表连接器指未来以**外部 CAD 引擎作为执行器**驱动同一工具族：
 
 | 连接器 | 套件 | 平台 | 状态 |
@@ -166,7 +166,7 @@ WebGL 显示层因此永不改变——更换后端只影响生成几何的质�
 
 ```
 cad_view(path)                        建模工具（cad_create_prim 等）
-  → 导入 worker（occt-import-js）       → 建模 worker（opencascade.js WASM）
+  → 导入 worker（occt-import-js）       → 建模 worker（cadorange / occt.ts WASM）
   → CadScene JSON（base64-f32）         → BRep 精确几何 + 网格化
   → GET /dsh-cad/scene/<id>            → 内存二进制场景（f32/u32 打包）
                                         → GET /dsh-cad/bin/<docId>
@@ -174,14 +174,13 @@ cad_view(path)                        建模工具（cad_create_prim 等）
         浏览器卡片 + 常驻 "3D" 页签（three.js / SVG，Z-up，XYZ 轴）
 ```
 
-- **两个 worker**：导入（occt-import-js，只读 STEP/IGES/BREP）与建模（opencascade.js，
-  完整 OCCT）分离，均惰性启动；embind 重载构造器的 `_N` 后缀约定封装在
-  `src/modeling/occt-adapter.cjs`（全部经运行时实证）
+- **两个 worker**：导入（occt-import-js，只读 STEP/IGES/BREP）与建模（cadorange
+  over occt.ts wasm）分离，均惰性启动
 - **直通管道**：建模场景零 base64 / 零 JSON 大数组 / 零每步落盘（磁盘镜像 1.5s 防抖，
   仅服务重启回放）；`cad_export` 是唯一的显式文件导出
 - **建模文档**：`<workspace>/.dsh-cad/model.json` 操作日志，重启后重放恢复全部 body
 - **工程图消隐内核**：隐藏线由 **occt.ts**（npm 依赖，`npm i occt.ts`）执行
-  真实 OCCT 消隐，无替代引擎、缺失即报错。相对 opencascade.js 的新增 API：
+  真实 OCCT 消隐，无替代引擎、缺失即报错。内核 API：
   `hiddenLines()` 真实消隐线、STEP/BRep 字节级 `readStep`/`readBrep`/`writeStep`/
   `writeBrep`（无需 MEMFS）、自带特征边提取的网格化、`hasError()`/`lastError()`
   错误契约。几何以 STEP 字节跨内核交换，投影线段重映射进图纸坐标系。内核 dist
@@ -201,9 +200,9 @@ cad_view(path)                        建模工具（cad_create_prim 等）
   公共 API 承担 prims/曲线段轮廓（真 BSpline 插值）/放样/扫掠/旋转/布尔
   （默认同域清理）/圆角/倒角/抽壳/拔模/原生镜像/质心，官方 `cadorange/occt`
   逃生口承担查看器网格、工程图 HLR（零 STEP 中转、单一 wasm 会话）与线构造）；
-  occt.ts 直连与 opencascade.js 保留为回退层级（`DSH_CAD_KERNEL` 可显式指定，
-  动词级映射见 docs/cadorange-integration.md）。抽壳后继续编辑无缝。opencascade.js 保留为**降级后端**
-  （occt.ts 加载失败时自动启用）。装配体 STEP 导出为**结构化文档**（occt.ts
+  occt.ts 直连保留为回退层级（`DSH_CAD_KERNEL` 可显式指定，
+  动词级映射见 docs/cadorange-integration.md）。抽壳后继续编辑无缝。
+  装配体 STEP 导出为**结构化文档**（cadorange
   `writeStepDocument`）：一个根产品 + 每实例一个命名、带位姿的子产品——
   实例分离在文件中保留（STL 仍为单一熔合网格；降级后端同样走 fuse）。fuse
   路径下实例分离仅保留在装配场景/文档中。面选择按 `describe()` 平面法向
@@ -242,7 +241,6 @@ cad_view(path)                        建模工具（cad_create_prim 等）
 
 ```sh
 npm test                             # 全套：转换器 / 建模 worker（体积精确断言）/ DCPRT 往返 / FreeCAD + Onshape 执行器 / 图片轮廓 / 二进制管道 / 文档持久化
-node test/m0-kernel-check.cjs        # OCCT 内核 API 冒烟
 node test/route-check.mjs            # JSON 场景路由层
 node test/visual/serve.mjs           # 浏览器卡片/页签视觉验证页（http://127.0.0.1:3987）
 ```

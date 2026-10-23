@@ -4,17 +4,18 @@ dsh-cad 的内核后端策略：**经由 [cadorange](https://github.com/LAU-MARS
 （agent 原生 CAD 运行时，底层 occt.ts/OCCT WASM）建模，公共 API 覆盖不到的
 绘制面走其**官方逃生口** `cadorange/occt`（ADR-0001：共存而非包裹）。
 
-## 当前状态（v0.15.0 起）
+## 当前状态（v0.15.1 起）
 
 - **适配层已全量落地**：`src/modeling/cadorange-adapter.cjs` 实现 dsh-cad 全部
   内核动词（原语/布尔/圆角/倒角/抽壳/拔模/拉伸/旋转/放样/扫掠/变换/阵列支撑/
   体积/描述/导出/草图渲染），不再有 "unsupported" 存根。
 - **双门禁全绿**：`npm test`（默认内核）与 `DSH_CAD_KERNEL=cadorange npm test`
   均通过全部用例（精确体积断言不变），满足下方切换判据。
-- 默认内核链已翻转：**cadorange → occt.ts 直连 → opencascade.js**（逐级
-  回退；cadorange 启动失败会以警告降级到直连后端，不挂死）。显式
+- 内核链：**cadorange → occt.ts 直连**（cadorange 启动失败会以警告降级到
+  直连后端，不挂死；两级共用同一 occt.ts wasm）。显式
   `DSH_CAD_KERNEL=cadorange` 仍为硬性要求（不可解析或 init 失败 → 干净报错），
-  `DSH_CAD_KERNEL=occt.ts|opencascade.js` 可强制指定下层。
+  `DSH_CAD_KERNEL=occt.ts` 强制直连；`opencascade.js` 档已于 v0.15.1 移除
+  （显式指定会得到带迁移指引的报错）。
 
 ## 构成
 
@@ -69,5 +70,8 @@ worker 在 body 替换（fillet/chamfer/shell/draft/transform/boolean）、布�
   不同（体积/面积一致，全套断言通过）。
 - STL 导出在适配层本地打包为二进制（与直连后端字节同格式），不使用 cadorange
   的 ASCII `exportStl`。
-- dsh-cad 侧保留 occt.ts 直连适配器（`occtts-adapter.cjs`）作为回退链一环，
+- dsh-cad 侧保留 occt.ts 直连适配器（`occtts-adapter.cjs`）作为回退层级，
   并已适配 occt.ts 1.1.0 的 `chamfer` 签名（`distance2 = NaN` 选对称倒角）。
+- **opencascade.js 第三级已于 v0.15.1 移除**：它是链上唯一独立的 wasm 二进制，
+  但能力残缺（无真 B 样条、几何读不回、HLR 不可用）且占 64MB 安装体积；
+  移除后 occt.ts wasm 成为单点，两级代码路径（cadorange API / 直连绑定）仍互为备份。

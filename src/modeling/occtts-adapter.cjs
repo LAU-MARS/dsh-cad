@@ -1,8 +1,8 @@
 /**
  * occt.ts modeling adapter — the PRIMARY kernel backend (plain CJS, runs in
  * the modeling worker). Mirrors the occt-adapter.cjs interface so the worker
- * is kernel-agnostic; opencascade.js stays installed only as the fallback
- * backend for environments where occt.ts cannot load.
+ * is kernel-agnostic and serves as the fallback tier behind cadorange
+ * (the opencascade.js tier was removed in v0.15.1).
  *
  * Shape representation: opaque occt.ts WasmShape handles. Geometry lives in
  * the occt.ts wasm heap; STEP/BRep exchange and true B-splines

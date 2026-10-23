@@ -41,7 +41,7 @@ Cumulative downloads from the npm registry, refreshed daily by CI:
 
 | Capability | Description |
 | --- | --- |
-| ⚙️ Kernel chain: cadorange → occt.ts → opencascade.js | Modeling goes through **[cadorange](https://github.com/LAU-MARS/cadorange)** (the agent-native CAD runtime wrapping the same occt.ts/OCCT WASM; public API + the supported `cadorange/occt` escape hatch for meshing/HLR/wire construction); the direct occt.ts adapter and opencascade.js stay as fallback tiers — `DSH_CAD_KERNEL` pins one explicitly. The old "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
+| ⚙️ Kernel chain: cadorange → occt.ts | Modeling goes through **[cadorange](https://github.com/LAU-MARS/cadorange)** (the agent-native CAD runtime wrapping the occt.ts/OCCT WASM; public API + the supported `cadorange/occt` escape hatch for meshing/HLR/wire construction); the direct occt.ts adapter stays as the fallback tier — `DSH_CAD_KERNEL` pins one explicitly (the opencascade.js tier was removed in v0.15.1, −64MB install). The old "no editing after shell" seam is gone — fillet/chamfer/boolean keep working after shelling |
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive viewport in the resident right panel (orbit / zoom / wireframe / pan), with a one-line result row in the conversation |
 | 🌗 Dark-mode surfaces | Every rendered surface follows the host theme — viewport slab, DXF/drawing strokes, the Three.js grid / XYZ triad / feature edges / default mesh color / sketch overlays, and the ViewCube plate; a theme flip restyles mounted viewers live. Overrides: `--dsh-cad-bg`, `--dsh-cad-stroke`, `--dsh-cad-paper` |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
@@ -152,7 +152,7 @@ versioned URL), and the resident panel's "Part" tab tracks the latest model in r
 
 ## Connectors (roadmap)
 
-Modeling primarily runs on the **occt.ts kernel** (opencascade.js as the fallback backend) (OCCT in the browser —
+Modeling runs on the **occt.ts kernel** via cadorange (OCCT in the browser —
 zero install). The connectors below refer to **external CAD engines** acting as
 executors for the same tool family, planned for future support:
 
@@ -174,7 +174,7 @@ backend changes only the quality of the produced geometry.
 
 ```
 cad_view(path)                        modeling tools (cad_create_prim, …)
-  → import worker (occt-import-js)      → modeling worker (opencascade.js WASM)
+  → import worker (occt-import-js)      → modeling worker (occt.ts WASM via cadorange)
   → CadScene JSON (base64-f32)          → exact BRep geometry + meshing
   → GET /dsh-cad/scene/<id>            → in-memory binary scene (f32/u32 packed)
                                         → GET /dsh-cad/bin/<docId>
@@ -183,9 +183,7 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
 ```
 
 - **Two workers**: import (occt-import-js, read-only STEP/IGES/BREP) and modeling
-  (opencascade.js, full OCCT) are separate, both lazily started; the `_N`
-  suffix convention of embind overloaded constructors is wrapped in
-  `src/modeling/occt-adapter.cjs` (all verified at runtime)
+  (cadorange over the occt.ts wasm) are separate, both lazily started
 - **Zero-copy pipeline**: modeling scenes use zero base64 / zero large JSON arrays /
   zero per-step disk writes (disk mirror debounced 1.5s, replayed only on service
   restart); `cad_export` is the only explicit file export
@@ -193,7 +191,7 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   are restored by replay after a restart
 - **Drawing HLR kernel**: hidden lines run on **occt.ts** (npm dependency,
   `npm i occt.ts`) — true OCCT removal, no fallback engine, a missing kernel is
-  a hard error. New APIs over opencascade.js: `hiddenLines()` true hidden-line
+  a hard error. Kernel APIs: `hiddenLines()` true hidden-line
   removal, byte-level STEP/BRep `readStep`/`readBrep`/`writeStep`/`writeBrep`
   without MEMFS, tessellation with built-in feature-edge extraction, and a
   `hasError()`/`lastError()` error contract. Geometry crosses kernels as STEP
@@ -220,14 +218,13 @@ cad_view(path)                        modeling tools (cad_create_prim, …)
   fillet/chamfer/shell/draft/native mirror/centroid, plus the supported
   `cadorange/occt` escape hatch for viewer tessellation, engineering-drawing
   HLR (zero STEP hops, one wasm session) and wire construction); the direct
-  occt.ts adapter and opencascade.js stay as fallback tiers
-  (`DSH_CAD_KERNEL` pins one; see docs/cadorange-integration.md for the
-  verb-by-verb mapping). Editing after shelling is seamless.
-  opencascade.js remains as the FALLBACK backend (auto-selected when occt.ts
-  cannot load). Assembly STEP export writes a **structured document** (occt.ts
-  `writeStepDocument`): one root product plus one named, placed child
+  occt.ts adapter stays as the fallback tier (`DSH_CAD_KERNEL` pins one; see
+  docs/cadorange-integration.md for the verb-by-verb mapping). Editing after
+  shelling is seamless. Assembly STEP export writes a **structured document**
+  (cadorange
+  `exportStepAssembly`): one root product plus one named, placed child
   per instance — instance separation survives the file (STL stays a single
-  fused mesh; the fallback backend also fuses). Instance separation stays in
+  fused mesh). Instance separation stays in
   the assembly scene/document for the fuse paths.
   Face selection matches `describe()` plane normals (outermost along ±normal)
 - **Client**: esbuild single-file CJS factory (three.js inlined ~560KB, react provided
@@ -268,7 +265,6 @@ either theme:
 
 ```sh
 npm test                             # full suite: converters / modeling worker (exact volume assertions) / DCPRT round-trip / FreeCAD + Onshape executors / image profiles / binary pipeline / document persistence
-node test/m0-kernel-check.cjs        # OCCT kernel API smoke test
 node test/route-check.mjs            # JSON scene routing layer
 node test/visual/serve.mjs           # browser card/tab visual verification page (http://127.0.0.1:3987)
 ```
