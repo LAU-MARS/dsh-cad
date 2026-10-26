@@ -1,10 +1,9 @@
 /**
- * The host-rightbar-pane registration (preferred mounting mode on hosts that
- * ship the sidebar-right tab system, dsh ≥0.2.x): the CAD panel becomes a
- * first-class pane — the host's docking kit owns width, collapse, float,
- * fullscreen, and the per-session open state, which retires the overlay's
- * self-measured positioning entirely (the class of bug behind issue #6 P0-1)
- * and makes narrow-screen behavior the host's own.
+ * The host-rightbar-pane registration (the panel's only mounting mode,
+ * dsh ≥0.2.x): the CAD panel is a first-class pane — the host's docking kit
+ * owns width, collapse, float, fullscreen, and the per-session open state,
+ * with zero self-measured positioning (the bug class behind issue #6 P0-1
+ * retired for good).
  *
  * Registration mirrors the host's own pane plugins (@deepseek-ai/
  * dsh-client-ui-sidebar-files): one tab type through the `sidebarRightTabs`
@@ -16,14 +15,14 @@
  * BEFORE the sidebar-right package provides `sidebarRightTabs` (itself
  * waiting on the frame's layout services) — a single apply-time lookup loses
  * that race (verified live: the type never reached the new-tab menu). So the
- * mount retries the lookup over the first ~1.6s and only then falls back to
- * the `shell.overlay` panel for hosts without the pane system; a partial
- * registration (type in, body out) is rolled back on any throw.
+ * mount retries the lookup over the first ~1.6s; a partial registration
+ * (type in, body out) is rolled back on any throw. Hosts without the pane
+ * system (dsh < 0.2.x) mount no panel — the chat cards remain the CAD
+ * surface there.
  */
 import React from 'react'
 import type { JSX } from 'react'
 import { makeCadPaneBody } from './sidepanel.js'
-import { makeCadSidePanel } from './sidepanel.js'
 import type { SessionsLike } from './sidepanel.js'
 
 /** The tab type's registry identity AND the keyed seat key (the id is what the seat dispatches on). */
@@ -158,40 +157,74 @@ function tryRegisterCadPane(ctx: PaneClientContext, sessions: SessionsLike | und
 }
 
 /**
- * Auto-open the CAD tab whenever a session becomes current: the boot load,
- * every new session, and every switch back to an old conversation. The pane
- * system starts every session with an empty rightbar — without this a fresh
- * install shows no display area at all and the + menu is the only
- * (undiscoverable) way in. While a session STAYS current, a deliberate close
- * stays closed; the next switch re-opens — the display area is the default
- * view of a session.
+ * Steer the rightbar presentation by replaying the host's own chrome button
+ * (collapse: the strip button inside [data-sidebar-right-panel]; expand: the
+ * banner's open button). The `layout` service an undeclared plugin gets via
+ * the optional lookup is a detached facade — closeRightbar/openRightbar there
+ * are verified no-ops live — while the chrome button goes through the host's
+ * real handler. Matched across locales, best-effort: a host markup change
+ * just leaves the host's own default presentation standing.
+ */
+function steerRightbar(shown: boolean, delayMs: number): void {
+  const press = (): void => {
+    try {
+      const scope: Document | Element | null = shown
+        ? document
+        : document.querySelector('[data-sidebar-right-panel]')
+      if (scope === null) return
+      const pattern = shown
+        ? /(打开|展开|open|show|expand).*(右侧边栏|right|sidebar)/i
+        : /(收起|折叠|collapse|hide).*(右侧边栏|right|sidebar)/i
+      const button = Array.from(scope.querySelectorAll('button'))
+        .find((candidate) => pattern.test(candidate.getAttribute('aria-label') ?? ''))
+      if (button instanceof HTMLElement) button.click()
+    } catch { /* best-effort; the host's default presentation stands */ }
+  }
+  setTimeout(press, delayMs)
+}
+
+/**
+ * Auto-open the CAD tab whenever a session becomes current. The pane system
+ * starts every session with an empty rightbar — without this a fresh install
+ * shows no display area at all and the + menu is the only (undiscoverable)
+ * way in.
+ *
+ * Boot load: place the CAD tab, then collapse the rightbar — the host itself
+ * boots the rightbar open (verified live: open at t=0, before any plugin
+ * code), so an active collapse is what keeps the launch view clean. Session
+ * transitions (new session, switch to another conversation): place the tab
+ * and ensure the rightbar is expanded, so the display area is just there.
+ * While a session STAYS current, a deliberate close stays closed; the next
+ * transition re-opens.
  *
  * Session source: the host `uiSession` service's `adapter.current` store
  * (the same signal sidebar-right watches). `openTab` throws until the host
- * mounted the switched-to session's surface, so each switch runs a bounded
- * retry chain, and a newer switch supersedes the older chain. Hosts without
- * `uiSession` degrade to the boot-time open only.
+ * mounted the switched-to session's surface, so each transition runs a
+ * bounded retry chain, and a newer transition supersedes the older chain.
+ * The FIRST subscriber event is still boot (the current session's
+ * establishment lands after our subscribe), so it runs non-revealing like
+ * the boot itself.
  */
 function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
   const generation = { current: 0 }
-  const attempt = (index: number): void => {
+  const attempt = (reveal: boolean, index: number): void => {
     if (index === 0) generation.current += 1
     const generationAtStart = generation.current
     const controller = ctx.get?.('sidebarRight') as PaneControllerLike | undefined
     if (controller != null && typeof controller.openTab === 'function') {
       try {
         controller.openTab(CAD_TAB_KIND)
-        try {
-          const layout = ctx.get?.('layout') as { openRightbar?: (track?: unknown, fullscreen?: unknown) => void } | undefined
-          layout?.openRightbar?.()
-        } catch { /* reveal is best-effort; placement already succeeded */ }
+        // Boot: wait out the host's post-placement presentation reactions
+        // before collapsing; transitions: nudge the bar open only if it is
+        // currently collapsed (the expand button is absent when shown).
+        steerRightbar(reveal, reveal ? 150 : 900)
         return
       } catch { /* session surface not mounted yet — retry */ }
     }
     if (index >= AUTO_OPEN_DELAYS_MS.length) return
     const retry = (): void => {
       if (generationAtStart !== generation.current) return
-      attempt(index + 1)
+      attempt(reveal, index + 1)
     }
     try {
       if (typeof ctx.setTimeout === 'function') ctx.setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
@@ -200,44 +233,42 @@ function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
       setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
     }
   }
-  const open = (): void => { attempt(0) }
+  // Transitions after the boot load reveal; the first subscriber event is
+  // the boot-time session establishment, so it collapses like the boot.
+  let booted = false
+  const onTransition = (): void => {
+    const reveal = booted
+    booted = true
+    attempt(reveal, 0)
+  }
   const uiSession = ctx.get?.('uiSession') as UiSessionLike | undefined
   const current = uiSession?.adapter?.current
   if (current != null && typeof current.subscribe === 'function' && typeof current.getSnapshot === 'function') {
-    const unsubscribe = current.subscribe(open)
+    const unsubscribe = current.subscribe(onTransition)
     ctx.effect?.(() => unsubscribe, 'dsh-cad: session auto-open watcher')
   }
-  open()
+  // The boot load itself: tab in place, rightbar collapsed.
+  attempt(false, 0)
 }
 
 /**
  * Mount the CAD panel: the rightbar pane once `sidebarRightTabs` shows up
  * (retried over the first ~1.6s — this plugin activates before the
- * sidebar-right package provides its services), else the `shell.overlay`
- * panel for hosts without the pane system.
+ * sidebar-right package provides its services). Hosts without the pane
+ * system (dsh < 0.2.x) mount no panel — the chat cards remain the CAD
+ * surface there.
  */
 export function mountCadPanel(ctx: PaneClientContext, sessions: SessionsLike | undefined): void {
   if (tryRegisterCadPane(ctx, sessions)) {
     watchSessionsAndAutoOpen(ctx)
     return
   }
-  let settled = false
   const attempt = (index: number): void => {
-    if (settled) return
     if (tryRegisterCadPane(ctx, sessions)) {
-      settled = true
       watchSessionsAndAutoOpen(ctx)
       return
     }
-    if (index >= SERVICE_RETRY_DELAYS_MS.length) {
-      settled = true
-      ctx.slots.inject('shell.overlay', () =>
-        ctx.slots.register(
-          { name: 'shell.overlay', id: 'cad-side-panel', order: 100, label: 'CAD' },
-          makeCadSidePanel(sessions) as unknown as (props: never) => JSX.Element,
-        ))
-      return
-    }
+    if (index >= SERVICE_RETRY_DELAYS_MS.length) return
     const retry = (): void => { attempt(index + 1) }
     try {
       if (typeof ctx.setTimeout === 'function') ctx.setTimeout(retry, SERVICE_RETRY_DELAYS_MS[index])

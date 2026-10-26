@@ -1,23 +1,16 @@
 /**
- * The resident CAD display panel — the right-hand part of the conversation
- * (center) column, restyled after Codex's tabbed document area: a tab strip
- * with closable tabs and a "+" menu offering three document kinds —
- * 零件 (Part Studio, the default), 装配体 (Assembly), 工程图 (Drawing).
- *
- * Two mounting modes share one content component (CadPanelContent):
- * - the host rightbar PANE (preferred, dsh ≥0.2.x sidebar-right tab system):
- *   the panel is a first-class tab body; width, collapse, float, fullscreen,
- *   and open-state persistence all belong to the host's docking kit;
- * - the additive `shell.overlay` entry (fallback for older hosts): the panel
- *   docks itself to the center column's right edge and, while expanded,
- *   writes an inline padding-right on the center column so the chat content
- *   and composer re-flow left instead of being covered.
+ * The resident CAD display panel — a host-rightbar PANE (the sidebar-right
+ * tab system, dsh ≥0.2.x): a tab strip with closable tabs and a "+" menu
+ * offering three document kinds — 零件 (Part Studio, the default), 装配体
+ * (Assembly), 工程图 (Drawing). Width, collapse, float, fullscreen, and the
+ * per-session open state all belong to the host's docking kit — this module
+ * carries only the content.
  *
  * Tabs are singletons per kind (Onshape-style document structure, minimal
  * chrome): the "+" menu activates the existing tab or creates it. Tab state
- * lives in a module store so collapsing the panel never loses it.
+ * lives in a module store so remounts never lose it.
  */
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react'
+import React, { useCallback, useEffect, useMemo, useReducer, useRef, useState, useSyncExternalStore } from 'react'
 import type { CadViewMeta } from './scene-types.js'
 import { mountCadEditor3D } from './viewer3d.js'
 import { readKind, readLatest, subscribeLatest, useScene, Viewport } from './viewport.js'
@@ -276,144 +269,6 @@ function DocIcon(): JSX.Element {
   )
 }
 
-// ── frame geometry (docking + yielding) ──────────────────────────────────────
-
-interface Anchors {
-  frame: HTMLElement | null
-  detailsCol: HTMLElement | null
-  centerCol: HTMLElement | null
-}
-
-/**
- * Locate the AppFrame columns from the panel's own overlay root.
- *
- * Primary: the host's stable `data-rightbar-col` marker (present on every
- * AppFrame version, old web through desktop through 0.2.1-alpha) — the
- * center column is its previous sibling in all of them.
- *
- * Fallback: walk the overlay layer's previous siblings skipping full-width
- * rows (0.2.1 added a full-width bottom row right before the overlay, which
- * a plain sibling-order guess would mistake for the details column — the
- * panel ended up offset by the full frame width, i.e. mounted but rendered
- * outside the viewport). Hashed class names are never relied on; missing
- * anchors degrade.
- */
-function findAnchors(root: HTMLElement): Anchors {
-  const layer = root.closest('[data-shell-overlay]')
-  if (!(layer instanceof HTMLElement)) return { frame: null, detailsCol: null, centerCol: null }
-  const frame = layer.parentElement instanceof HTMLElement ? layer.parentElement : null
-  if (frame !== null) {
-    const marked = frame.querySelector('[data-rightbar-col]')
-    if (marked instanceof HTMLElement) {
-      const centerCol = marked.previousElementSibling instanceof HTMLElement ? marked.previousElementSibling : null
-      return { frame, detailsCol: marked, centerCol }
-    }
-  }
-  const frameWidth = frame !== null ? frame.getBoundingClientRect().width : 0
-  const columns: HTMLElement[] = []
-  let sibling = layer.previousElementSibling
-  while (sibling instanceof HTMLElement && columns.length < 2) {
-    const width = sibling.getBoundingClientRect().width
-    if (!(frameWidth > 0 && width >= frameWidth - 1)) columns.push(sibling)
-    sibling = sibling.previousElementSibling
-  }
-  return { frame, detailsCol: columns[0] ?? null, centerCol: columns[1] ?? null }
-}
-
-interface DockGeometry {
-  /** Distance from the frame's right edge to the center column's right edge. */
-  right: number
-  /** Live center-column width (clamps the panel on narrow frames). */
-  centerWidth: number
-}
-
-function measureGeometry({ frame, detailsCol, centerCol }: Anchors): DockGeometry {
-  if (detailsCol !== null && centerCol !== null) {
-    return {
-      right: detailsCol.getBoundingClientRect().width,
-      centerWidth: centerCol.getBoundingClientRect().width,
-    }
-  }
-  // Fallback: the frame grid's resolved tracks are [sidebar, center, details].
-  if (frame !== null) {
-    const tracks = getComputedStyle(frame).gridTemplateColumns.trim().split(/\s+/).map(Number.parseFloat)
-    const center = tracks[1]
-    const details = tracks[2]
-    if (Number.isFinite(center) && Number.isFinite(details)) {
-      return { right: details, centerWidth: center }
-    }
-  }
-  return { right: 0, centerWidth: 0 }
-}
-
-/** Track the dock position: details open/close/drag, sidebar drag, resizes. */
-function useDockGeometry(rootRef: React.RefObject<HTMLDivElement | null>): DockGeometry {
-  const [geometry, setGeometry] = useState<DockGeometry>({ right: 0, centerWidth: 0 })
-
-  useLayoutEffect(() => {
-    const root = rootRef.current
-    if (root === null) return
-    const anchors = findAnchors(root)
-    let raf = 0
-    const remeasure = (): void => {
-      raf = 0
-      const next = measureGeometry(anchors)
-      setGeometry((previous) =>
-        Math.abs(previous.right - next.right) < 0.5 && Math.abs(previous.centerWidth - next.centerWidth) < 0.5
-          ? previous
-          : next,
-      )
-    }
-    const schedule = (): void => {
-      if (raf === 0) raf = requestAnimationFrame(remeasure)
-    }
-    const observer = new ResizeObserver(schedule)
-    for (const column of [anchors.frame, anchors.detailsCol, anchors.centerCol]) {
-      if (column !== null) observer.observe(column)
-    }
-    window.addEventListener('resize', schedule)
-    remeasure()
-    return () => {
-      observer.disconnect()
-      window.removeEventListener('resize', schedule)
-      if (raf !== 0) cancelAnimationFrame(raf)
-    }
-  }, [rootRef])
-
-  return geometry
-}
-
-// ── panel sizes ──────────────────────────────────────────────────────────────
-
-const PANEL_MIN = 280
-const PANEL_MAX = 720
-const PANEL_DEFAULT = 460
-
-/** localStorage slot for the overlay's collapsed state and width (issue #9:
- * a refresh must not re-expand the panel — the pane mode gets this from the
- * host's per-session tab memory; the overlay fallback keeps it here). */
-const PANEL_PREF_KEY = 'dsh-cad.panel'
-
-function readPanelPref(): { expanded?: boolean; width?: number } {
-  try {
-    const raw = window.localStorage.getItem(PANEL_PREF_KEY)
-    return raw === null ? {} : (JSON.parse(raw) as { expanded?: boolean; width?: number })
-  } catch {
-    return {}
-  }
-}
-
-function writePanelPref(patch: { expanded?: boolean; width?: number }): void {
-  try {
-    window.localStorage.setItem(PANEL_PREF_KEY, JSON.stringify({ ...readPanelPref(), ...patch }))
-  } catch { /* non-DOM host */ }
-}
-/** Breathing room between the re-flowed chat column and the panel. */
-const PANEL_GAP = 20
-/** Never let the panel eat more than this share of the center column. */
-const CENTER_SHARE = 0.42
-
-// ── the "+" menu ─────────────────────────────────────────────────────────────
 
 const MENU_ITEMS: Array<{ kind: DocKind; label: string; hint: string }> = [
   { kind: 'part', label: '零件', hint: 'Part Studio · 三维建模' },
@@ -589,17 +444,14 @@ function DocsMenu({ activeDocId, onClose }: { activeDocId: string | null; onClos
 // ── the panel ────────────────────────────────────────────────────────────────
 
 /**
- * The panel's inner content, shared by the two mounting modes: the tab strip
+ * The panel's content as the host rightbar pane mounts it: the tab strip
  * (with its "+" and file-list buttons), the overlay menus, and the active
- * tab's body. No positioning shell here — the overlay wrapper absolutely
- * docks it beside the rightbar; the host rightbar pane mounts it as a tab
- * body. `onCollapse` is the overlay's collapse affordance; the pane omits it
- * because the host's tab strip already owns collapse.
+ * tab's body. No positioning shell here — the pane's tab strip (host chrome)
+ * owns width, collapse, float, and fullscreen.
  */
 function CadPanelContent(props: {
   useSessions?: CadSidePanelProps['useSessions']
   sessions: SessionsLike | undefined
-  onCollapse?: () => void
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false)
   const [docsOpen, setDocsOpen] = useState(false)
@@ -663,17 +515,6 @@ function CadPanelContent(props: {
           <FolderIcon />
         </button>
         <span style={panelStyles.headerStats}>{activeMeta === null ? '' : statsLine(activeMeta)}</span>
-        {props.onCollapse !== undefined ? (
-          <button
-            type="button"
-            style={panelStyles.iconButton}
-            onClick={props.onCollapse}
-            aria-label="收起 CAD 面板"
-            title="收起"
-          >
-            »
-          </button>
-        ) : null}
       </div>
       {menuOpen ? (
         <NewTabMenu
@@ -699,74 +540,6 @@ function CadPanelContent(props: {
   )
 }
 
-/** Build the overlay entry component with the host sessions service in scope. */
-export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: CadSidePanelProps) => JSX.Element {
-  return function CadSidePanel(props: CadSidePanelProps): JSX.Element {
-    const rootRef = useRef<HTMLDivElement | null>(null)
-    const [expanded, setExpanded] = useState(() => readPanelPref().expanded ?? true)
-    const [width, setWidth] = useState(() => readPanelPref().width ?? PANEL_DEFAULT)
-    useEffect(() => { writePanelPref({ expanded }) }, [expanded])
-    useEffect(() => { writePanelPref({ width }) }, [width])
-    const geometry = useDockGeometry(rootRef)
-
-    const panelWidth = useMemo(() => {
-      const cap = geometry.centerWidth > 0 ? Math.max(PANEL_MIN, geometry.centerWidth * CENTER_SHARE) : PANEL_MAX
-      return Math.round(Math.min(width, cap))
-    }, [width, geometry.centerWidth])
-
-    useCenterColumnYield(rootRef, expanded, panelWidth)
-
-    // Left-edge width drag: pointer-captured on the resizer, live-clamped.
-    const dragRef = useRef<{ startX: number; startWidth: number } | null>(null)
-    const onResizeDown = (event: React.PointerEvent<HTMLDivElement>): void => {
-      event.preventDefault()
-      // Drag from the effective (clamped) width so a capped panel grows
-      // smoothly instead of jumping back to the raw preference.
-      dragRef.current = { startX: event.clientX, startWidth: panelWidth }
-      event.currentTarget.setPointerCapture(event.pointerId)
-    }
-    const onResizeMove = (event: React.PointerEvent<HTMLDivElement>): void => {
-      const drag = dragRef.current
-      if (drag === null) return
-      const next = drag.startWidth + (drag.startX - event.clientX)
-      setWidth(Math.round(Math.min(PANEL_MAX, Math.max(PANEL_MIN, next))))
-    }
-    const onResizeUp = (): void => {
-      dragRef.current = null
-    }
-
-    return (
-      <div ref={rootRef} data-cad-side-panel="" style={panelStyles.root}>
-        {expanded ? (
-          <div style={{ ...panelStyles.panel, right: geometry.right, width: panelWidth }}>
-            <div
-              style={panelStyles.resizer}
-              onPointerDown={onResizeDown}
-              onPointerMove={onResizeMove}
-              onPointerUp={onResizeUp}
-              onPointerCancel={onResizeUp}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整 CAD 面板宽度"
-            />
-            <CadPanelContent useSessions={props.useSessions} sessions={sessions} onCollapse={() => { setExpanded(false) }} />
-          </div>
-        ) : (
-          <button
-            type="button"
-            style={{ ...panelStyles.rail, right: geometry.right + 10 }}
-            onClick={() => { setExpanded(true) }}
-            aria-label="展开 CAD 面板"
-            title="展开 CAD 视图"
-          >
-            «&nbsp;&nbsp;CAD
-          </button>
-        )}
-      </div>
-    )
-  }
-}
-
 /**
  * The host-rightbar-pane body: the same content with no shell of its own —
  * the pane's tab strip (host chrome) owns width, collapse, float, and
@@ -783,30 +556,6 @@ export function makeCadPaneBody(sessions: SessionsLike | undefined): (props: Cad
       </div>
     )
   }
-}
-
-/**
- * Yield the center column while expanded: an inline padding-right sized to the
- * panel re-centers the chat column (content + composer are max-width flow, so
- * they reflow automatically). React renders the column with className only, so
- * the inline style survives AppFrame re-renders; collapse and unmount restore
- * the empty value.
- */
-function useCenterColumnYield(
-  rootRef: React.RefObject<HTMLDivElement | null>,
-  expanded: boolean,
-  panelWidth: number,
-): void {
-  useLayoutEffect(() => {
-    const root = rootRef.current
-    if (root === null) return
-    const centerCol = findAnchors(root).centerCol
-    if (centerCol === null) return
-    centerCol.style.paddingRight = expanded ? `${PANEL_GAP + panelWidth}px` : ''
-    return () => {
-      centerCol.style.paddingRight = ''
-    }
-  }, [rootRef, expanded, panelWidth])
 }
 
 // ── tab bodies ───────────────────────────────────────────────────────────────
@@ -1058,16 +807,6 @@ function EmptyPartStudio(): JSX.Element {
 }
 
 const panelStyles: Record<string, React.CSSProperties> = {
-  // Frameless desktop windows overlay a full-width drag strip
-  // (`-webkit-app-region: drag`, the [data-windows-titlebar] frame::before)
-  // across the top band. Chromium computes drag regions geometrically — not
-  // by z-order — so the strip swallows clicks meant for the tab row. no-drag
-  // on the panel subtracts its rect back out; inert in plain browsers.
-  root: {
-    position: 'absolute',
-    inset: 0,
-    pointerEvents: 'none',
-  },
   paneRoot: {
     width: '100%',
     height: '100%',
@@ -1076,35 +815,6 @@ const panelStyles: Record<string, React.CSSProperties> = {
     minWidth: 0,
     minHeight: 0,
     background: 'var(--dsw-alias-bg-base, #fff)',
-  },
-  panel: {
-    position: 'absolute',
-    // Clear the frameless desktop window's titlebar drag band: the shell sets
-    // --dsh-windows-titlebar-height inline on <html> only when the custom
-    // titlebar exists (browsers fall back to 0), and Chromium's drag region
-    // swallows clicks geometrically regardless of z-order — overlapping it
-    // made the whole tab strip dead on desktop.
-    top: 'var(--dsh-windows-titlebar-height, 0px)',
-    bottom: 0,
-    pointerEvents: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
-    minWidth: 0,
-    background: 'var(--dsw-alias-bg-base, #fff)',
-    borderLeft: '1px solid var(--dsw-alias-border-l2, #c4c9d0)',
-    boxShadow: '-16px 0 28px -20px rgba(16,24,40,0.18)',
-    ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties),
-  },
-  resizer: {
-    position: 'absolute',
-    top: 0,
-    bottom: 0,
-    left: 0,
-    width: 7,
-    marginLeft: -3,
-    cursor: 'col-resize',
-    zIndex: 6,
-    touchAction: 'none',
   },
   // ── tab strip (Codex-style) ──────────────────────────────────────────────
   tabStripRow: {
@@ -1376,19 +1086,6 @@ const panelStyles: Record<string, React.CSSProperties> = {
     textOverflow: 'ellipsis',
     maxWidth: '30%',
   },
-  iconButton: {
-    flex: 'none',
-    border: 'none',
-    background: 'transparent',
-    color: 'var(--dsw-alias-label-tertiary, #6b7280)',
-    fontSize: 15,
-    lineHeight: '20px',
-    width: 26,
-    height: 26,
-    borderRadius: 6,
-    cursor: 'pointer',
-    padding: 0,
-  },
   body: {
     flex: '1 1 auto',
     minHeight: 0,
@@ -1494,21 +1191,5 @@ const panelStyles: Record<string, React.CSSProperties> = {
     fontSize: 11,
     lineHeight: '17px',
     textAlign: 'center',
-  },
-  rail: {
-    position: 'absolute',
-    top: 72,
-    pointerEvents: 'auto',
-    writingMode: 'vertical-rl',
-    padding: '12px 6px',
-    borderRadius: 10,
-    border: '1px solid var(--dsw-alias-border-l2, #c4c9d0)',
-    background: 'var(--dsw-alias-bg-base, #fff)',
-    color: 'var(--dsw-alias-label-secondary, #374151)',
-    fontSize: 11,
-    letterSpacing: '0.08em',
-    cursor: 'pointer',
-    boxShadow: '4px 4px 12px -6px rgba(16,24,40,0.2)',
-    ...({ WebkitAppRegion: 'no-drag' } as React.CSSProperties),
   },
 }
