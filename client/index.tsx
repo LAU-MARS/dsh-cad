@@ -3,15 +3,16 @@
  * - compact one-line rows for the cad_* tool calls in the chat flow (the
  *   resident panel is the single CAD display area; every settled row also
  *   feeds the latest-CAD memory behind the panel's fallback channel);
- * - the resident CAD display panel docked to the right of the conversation
- *   (center) column via the additive `shell.overlay` seat: expanded by default
- *   from launch, an empty placeholder before any CAD modeling, then tracking
- *   the newest model of the current session live. It yields the chat column
- *   (inline padding-right on the center column) instead of covering it.
+ * - the resident CAD display panel, mounted as a host rightbar PANE when the
+ *   sidebar-right tab system is available (dsh ≥0.2.x — the host's docking
+ *   kit owns width/collapse/float/fullscreen and remembers the open tab per
+ *   session), falling back to the additive `shell.overlay` seat on older
+ *   hosts (self-docked beside the center column, expanded by default). Both
+ *   modes track the newest model of the current session live.
  */
 import type { CadCardProps } from './card.js'
 import { CadCallRow } from './card.js'
-import { makeCadSidePanel } from './sidepanel.js'
+import { mountCadPanel } from './pane.js'
 import type { SessionsLike } from './sidepanel.js'
 
 export const inject = ['slots']
@@ -80,16 +81,17 @@ export function apply(ctx: ClientContext): void {
     )
   }
 
-  // The resident side panel (additive overlay seat — composes, never shadows
-  // the frame). `ctx.get('sessions')` is the optional-service convention: the
-  // live conversation feed behind the panel's model tracking; without it the
-  // panel falls back to the card-fed latest-CAD memory. (Direct `ctx.sessions`
+  // The resident CAD panel. `ctx.get(name)` is the optional-service
+  // convention. Preferred: the host rightbar pane (sidebar-right tab system)
+  // — layout, collapse, float, fullscreen, and per-session open state are the
+  // host's, with zero self-measured positioning; the service lookup retries
+  // over the first ~1.6s because this plugin activates before the
+  // sidebar-right package provides it. Fallback: the additive `shell.overlay`
+  // seat — the panel docks itself beside the rightbar and yields the chat
+  // column (inline padding-right on the center column) instead of covering
+  // it. (`ctx.get('sessions')` stays the live feed for both; without it the
+  // panel falls back to the card-fed latest-CAD memory. Direct `ctx.sessions`
   // access would throw — the property requires declaring an inject.)
   const sessions = ctx.get?.('sessions') as SessionsLike | undefined
-  ctx.slots.inject('shell.overlay', () =>
-    ctx.slots.register(
-      { name: 'shell.overlay', id: 'cad-side-panel', order: 100, label: 'CAD' },
-      makeCadSidePanel(sessions) as unknown as (props: never) => JSX.Element,
-    ),
-  )
+  mountCadPanel(ctx, sessions)
 }

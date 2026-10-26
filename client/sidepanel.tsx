@@ -4,11 +4,14 @@
  * with closable tabs and a "+" menu offering three document kinds —
  * 零件 (Part Studio, the default), 装配体 (Assembly), 工程图 (Drawing).
  *
- * Registered as an additive `shell.overlay` entry (the frame's floating
- * layer, root scope): the panel docks itself to the center column's right
- * edge and, while expanded, writes an inline padding-right on the center
- * column so the chat content and composer re-flow left instead of being
- * covered.
+ * Two mounting modes share one content component (CadPanelContent):
+ * - the host rightbar PANE (preferred, dsh ≥0.2.x sidebar-right tab system):
+ *   the panel is a first-class tab body; width, collapse, float, fullscreen,
+ *   and open-state persistence all belong to the host's docking kit;
+ * - the additive `shell.overlay` entry (fallback for older hosts): the panel
+ *   docks itself to the center column's right edge and, while expanded,
+ *   writes an inline padding-right on the center column so the chat content
+ *   and composer re-flow left instead of being covered.
  *
  * Tabs are singletons per kind (Onshape-style document structure, minimal
  * chrome): the "+" menu activates the existing tab or creates it. Tab state
@@ -38,6 +41,17 @@ export interface SessionsLike {
 /** Root-scope standard kit: the useSessions selector hook arrives as a prop. */
 export interface CadSidePanelProps {
   useSessions?: <S>(selector: (state: { current?: string }) => S) => S
+}
+
+/**
+ * What the `sidebar.right.pane.tab` keyed seat passes a tab body (structural:
+ * useTabInfo/sessionId/store/inject extras are ignored; only the sessions
+ * selector hook is consumed, and it too is optional — the sessions service
+ * closure is the fallback channel).
+ */
+export interface CadPaneSeatProps {
+  useSessions?: <S>(selector: (state: { current?: string }) => S) => S
+  [extra: string]: unknown
 }
 
 /** Newest CAD presentation meta per panel tab kind in a conversation snapshot. */
@@ -374,6 +388,26 @@ function useDockGeometry(rootRef: React.RefObject<HTMLDivElement | null>): DockG
 const PANEL_MIN = 280
 const PANEL_MAX = 720
 const PANEL_DEFAULT = 460
+
+/** localStorage slot for the overlay's collapsed state and width (issue #9:
+ * a refresh must not re-expand the panel — the pane mode gets this from the
+ * host's per-session tab memory; the overlay fallback keeps it here). */
+const PANEL_PREF_KEY = 'dsh-cad.panel'
+
+function readPanelPref(): { expanded?: boolean; width?: number } {
+  try {
+    const raw = window.localStorage.getItem(PANEL_PREF_KEY)
+    return raw === null ? {} : (JSON.parse(raw) as { expanded?: boolean; width?: number })
+  } catch {
+    return {}
+  }
+}
+
+function writePanelPref(patch: { expanded?: boolean; width?: number }): void {
+  try {
+    window.localStorage.setItem(PANEL_PREF_KEY, JSON.stringify({ ...readPanelPref(), ...patch }))
+  } catch { /* non-DOM host */ }
+}
 /** Breathing room between the re-flowed chat column and the panel. */
 const PANEL_GAP = 20
 /** Never let the panel eat more than this share of the center column. */
@@ -554,19 +588,126 @@ function DocsMenu({ activeDocId, onClose }: { activeDocId: string | null; onClos
 
 // ── the panel ────────────────────────────────────────────────────────────────
 
+/**
+ * The panel's inner content, shared by the two mounting modes: the tab strip
+ * (with its "+" and file-list buttons), the overlay menus, and the active
+ * tab's body. No positioning shell here — the overlay wrapper absolutely
+ * docks it beside the rightbar; the host rightbar pane mounts it as a tab
+ * body. `onCollapse` is the overlay's collapse affordance; the pane omits it
+ * because the host's tab strip already owns collapse.
+ */
+function CadPanelContent(props: {
+  useSessions?: CadSidePanelProps['useSessions']
+  sessions: SessionsLike | undefined
+  onCollapse?: () => void
+}): JSX.Element {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [docsOpen, setDocsOpen] = useState(false)
+  const metas = useKindMetas(props.useSessions, props.sessions)
+  const sessionId = props.useSessions?.((state) => state.current) ?? null
+  useEffect(() => { setPollSession(sessionId) }, [sessionId])
+  const { tabs, active } = useTabs()
+  const activeMeta = active === null ? null : metas[active]
+
+  return (
+    <>
+      <div style={panelStyles.tabStripRow}>
+        <div style={panelStyles.tabStrip} role="tablist" aria-label="CAD 文档">
+          {tabs.map((tab) => {
+            const isActive = tab.id === active
+            return (
+              <div
+                key={tab.id}
+                role="tab"
+                aria-selected={isActive}
+                tabIndex={0}
+                style={{ ...panelStyles.tab, ...(isActive ? panelStyles.tabActive : {}) }}
+                onClick={() => { activateTab(tab.id) }}
+                onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activateTab(tab.id) }}
+              >
+                <span style={isActive ? panelStyles.tabIconActive : panelStyles.tabIcon}><TabIcon kind={tab.id} /></span>
+                <span style={panelStyles.tabLabel}>{TAB_TITLES[tab.id]}</span>
+                <button
+                  type="button"
+                  style={panelStyles.tabClose}
+                  aria-label={`关闭 ${TAB_TITLES[tab.id]}`}
+                  title="关闭"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    closeTab(tab.id)
+                  }}
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
+          <button
+            type="button"
+            style={panelStyles.addTab}
+            aria-label="新建文档"
+            title="新建：零件 / 装配体 / 工程图"
+            onClick={() => { setDocsOpen(false); setMenuOpen((open) => !open) }}
+          >
+            +
+          </button>
+        </div>
+        <button
+          type="button"
+          style={panelStyles.fileButton}
+          aria-label="文档列表"
+          aria-expanded={docsOpen}
+          title="工作区文档列表（预览 / 删除）"
+          onClick={() => { setMenuOpen(false); setDocsOpen((open) => !open) }}
+        >
+          <FolderIcon />
+        </button>
+        <span style={panelStyles.headerStats}>{activeMeta === null ? '' : statsLine(activeMeta)}</span>
+        {props.onCollapse !== undefined ? (
+          <button
+            type="button"
+            style={panelStyles.iconButton}
+            onClick={props.onCollapse}
+            aria-label="收起 CAD 面板"
+            title="收起"
+          >
+            »
+          </button>
+        ) : null}
+      </div>
+      {menuOpen ? (
+        <NewTabMenu
+          onPick={(kind) => {
+            setMenuOpen(false)
+            ensureTab(kind)
+          }}
+          onClose={() => { setMenuOpen(false) }}
+        />
+      ) : null}
+      {docsOpen ? (
+        <DocsMenu
+          activeDocId={metas.part?.viewId ?? null}
+          onClose={() => { setDocsOpen(false) }}
+        />
+      ) : null}
+      <div style={panelStyles.body}>
+        {active === 'part' ? <PartTabBody meta={metas.part} /> : null}
+        {active === 'assembly' ? <AssemblyTabBody meta={metas.assembly} /> : null}
+        {active === 'drawing' ? <DrawingTabBody meta={metas.drawing} /> : null}
+      </div>
+    </>
+  )
+}
+
 /** Build the overlay entry component with the host sessions service in scope. */
 export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: CadSidePanelProps) => JSX.Element {
   return function CadSidePanel(props: CadSidePanelProps): JSX.Element {
     const rootRef = useRef<HTMLDivElement | null>(null)
-    const [expanded, setExpanded] = useState(true)
-    const [width, setWidth] = useState(PANEL_DEFAULT)
-    const [menuOpen, setMenuOpen] = useState(false)
-    const [docsOpen, setDocsOpen] = useState(false)
+    const [expanded, setExpanded] = useState(() => readPanelPref().expanded ?? true)
+    const [width, setWidth] = useState(() => readPanelPref().width ?? PANEL_DEFAULT)
+    useEffect(() => { writePanelPref({ expanded }) }, [expanded])
+    useEffect(() => { writePanelPref({ width }) }, [width])
     const geometry = useDockGeometry(rootRef)
-    const metas = useKindMetas(props.useSessions, sessions)
-    const sessionId = props.useSessions?.((state) => state.current) ?? null
-    useEffect(() => { setPollSession(sessionId) }, [sessionId])
-    const { tabs, active } = useTabs()
 
     const panelWidth = useMemo(() => {
       const cap = geometry.centerWidth > 0 ? Math.max(PANEL_MIN, geometry.centerWidth * CENTER_SHARE) : PANEL_MAX
@@ -594,8 +735,6 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
       dragRef.current = null
     }
 
-    const activeMeta = active === null ? null : metas[active]
-
     return (
       <div ref={rootRef} data-cad-side-panel="" style={panelStyles.root}>
         {expanded ? (
@@ -610,88 +749,7 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
               aria-orientation="vertical"
               aria-label="调整 CAD 面板宽度"
             />
-            <div style={panelStyles.tabStripRow}>
-              <div style={panelStyles.tabStrip} role="tablist" aria-label="CAD 文档">
-                {tabs.map((tab) => {
-                  const isActive = tab.id === active
-                  return (
-                    <div
-                      key={tab.id}
-                      role="tab"
-                      aria-selected={isActive}
-                      tabIndex={0}
-                      style={{ ...panelStyles.tab, ...(isActive ? panelStyles.tabActive : {}) }}
-                      onClick={() => { activateTab(tab.id) }}
-                      onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') activateTab(tab.id) }}
-                    >
-                      <span style={isActive ? panelStyles.tabIconActive : panelStyles.tabIcon}><TabIcon kind={tab.id} /></span>
-                      <span style={panelStyles.tabLabel}>{TAB_TITLES[tab.id]}</span>
-                      <button
-                        type="button"
-                        style={panelStyles.tabClose}
-                        aria-label={`关闭 ${TAB_TITLES[tab.id]}`}
-                        title="关闭"
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          closeTab(tab.id)
-                        }}
-                      >
-                        ×
-                      </button>
-                    </div>
-                  )
-                })}
-                <button
-                  type="button"
-                  style={panelStyles.addTab}
-                  aria-label="新建文档"
-                  title="新建：零件 / 装配体 / 工程图"
-                  onClick={() => { setDocsOpen(false); setMenuOpen((open) => !open) }}
-                >
-                  +
-                </button>
-              </div>
-              <button
-                type="button"
-                style={panelStyles.fileButton}
-                aria-label="文档列表"
-                aria-expanded={docsOpen}
-                title="工作区文档列表（预览 / 删除）"
-                onClick={() => { setMenuOpen(false); setDocsOpen((open) => !open) }}
-              >
-                <FolderIcon />
-              </button>
-              <span style={panelStyles.headerStats}>{activeMeta === null ? '' : statsLine(activeMeta)}</span>
-              <button
-                type="button"
-                style={panelStyles.iconButton}
-                onClick={() => { setExpanded(false) }}
-                aria-label="收起 CAD 面板"
-                title="收起"
-              >
-                »
-              </button>
-            </div>
-            {menuOpen ? (
-              <NewTabMenu
-                onPick={(kind) => {
-                  setMenuOpen(false)
-                  ensureTab(kind)
-                }}
-                onClose={() => { setMenuOpen(false) }}
-              />
-            ) : null}
-            {docsOpen ? (
-              <DocsMenu
-                activeDocId={metas.part?.viewId ?? null}
-                onClose={() => { setDocsOpen(false) }}
-              />
-            ) : null}
-            <div style={panelStyles.body}>
-              {active === 'part' ? <PartTabBody meta={metas.part} /> : null}
-              {active === 'assembly' ? <AssemblyTabBody meta={metas.assembly} /> : null}
-              {active === 'drawing' ? <DrawingTabBody meta={metas.drawing} /> : null}
-            </div>
+            <CadPanelContent useSessions={props.useSessions} sessions={sessions} onCollapse={() => { setExpanded(false) }} />
           </div>
         ) : (
           <button
@@ -704,6 +762,24 @@ export function makeCadSidePanel(sessions: SessionsLike | undefined): (props: Ca
             «&nbsp;&nbsp;CAD
           </button>
         )}
+      </div>
+    )
+  }
+}
+
+/**
+ * The host-rightbar-pane body: the same content with no shell of its own —
+ * the pane's tab strip (host chrome) owns width, collapse, float, and
+ * fullscreen, and the session layout remembers the open tab. The seat passes
+ * its own props (useTabInfo, sessionId, useSessions, …); only `useSessions`
+ * is consumed, and the sessions service closure remains the fallback when a
+ * seat build omits it.
+ */
+export function makeCadPaneBody(sessions: SessionsLike | undefined): (props: CadPaneSeatProps) => JSX.Element {
+  return function CadPaneBody(props: CadPaneSeatProps): JSX.Element {
+    return (
+      <div data-cad-pane="" style={panelStyles.paneRoot}>
+        <CadPanelContent useSessions={props.useSessions} sessions={sessions} />
       </div>
     )
   }
@@ -991,6 +1067,15 @@ const panelStyles: Record<string, React.CSSProperties> = {
     position: 'absolute',
     inset: 0,
     pointerEvents: 'none',
+  },
+  paneRoot: {
+    width: '100%',
+    height: '100%',
+    display: 'flex',
+    flexDirection: 'column',
+    minWidth: 0,
+    minHeight: 0,
+    background: 'var(--dsw-alias-bg-base, #fff)',
   },
   panel: {
     position: 'absolute',
