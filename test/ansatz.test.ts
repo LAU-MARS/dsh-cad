@@ -9,7 +9,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { runModelOp } from '../src/modeling/client.js'
 import { ansatzAvailable, resolveAnsatzWasmDir, solveModel } from '../src/modeling/ansatz-bridge.js'
-import { buildSolverModel, instanceToRigid3, rigid3ToInstance } from '../src/modeling/constraints.js'
+import { buildSolverModel, createIdAssigner, instanceToRigid3, normalizeConstraintModel, rigid3ToInstance } from '../src/modeling/constraints.js'
 import type { AssemblyInstance } from '../src/modeling/client.js'
 
 const ansatzReady = ansatzAvailable()
@@ -113,6 +113,57 @@ describe('solver-model building', () => {
 
   it('rejects entities bound to unknown instances', () => {
     expect(() => buildSolverModel({ entities: [{ id: 0, instance: 'nope' }], constraints: [] }, [])).toThrow(/unknown assembly instance/)
+  })
+})
+
+describe('constraint-model id normalization (issue #8)', () => {
+  it('aliases string-label ids to free integers — the exact #8 call now solves', async () => {
+    if (!ansatzReady) throw new Error('Ansatz wasm solver not found')
+    // #8 repro shape: entities=[{"id":"iA","instance":"a3"}] used to store
+    // Number("iA") = NaN → JSON null → "invalid type: null, expected u32".
+    const model = normalizeConstraintModel([{ id: 'iA', instance: 'a3' }], [])
+    expect(model.entities[0]!.id).toBe(0)
+    const solverInput = buildSolverModel(model, [instance('a3', [0, 0, 0], [0, 0, 0])])
+    const report = await solveModel(solverInput)
+    expect(report.outcome).toBe('underconstrained')
+  })
+
+  it('resolves constraint refs through the alias table and accepts numeric strings', () => {
+    const model = normalizeConstraintModel(
+      [
+        { id: 'iA', geometry: { type: 'point2', x: 0, y: 0 } },
+        { id: '3', geometry: { type: 'point2', x: 1, y: 1 } },
+        { id: 'iB', geometry: { type: 'point2', x: 2, y: 2 } },
+      ],
+      [{ id: 'coincident-label', type: 'coincident', a: 'iA', b: 'iB', value: 10 }],
+    )
+    expect(model.entities.map((entity) => entity.id)).toEqual([0, 3, 1])
+    expect(model.constraints[0]!.kind).toEqual({ type: 'coincident', a: 0, b: 1, value: 10 })
+  })
+
+  it('rejects malformed ids and refs with precise messages', () => {
+    expect(() => normalizeConstraintModel([{ id: 1.5 }], [])).toThrow(/entity id must be a non-negative integer/)
+    expect(() => normalizeConstraintModel([{ id: -1 }], [])).toThrow(/entity id must be a non-negative integer/)
+    expect(() => normalizeConstraintModel([{ id: 'iA' }, { id: 'iA' }], [])).toThrow(/duplicate entity id "iA"/)
+    expect(() => normalizeConstraintModel([{ id: 0 }], [{ type: 'distance', a: 'zz', b: null, value: 5 }])).toThrow(/declared label, got "zz"/)
+    expect(() => normalizeConstraintModel([{ id: 0 }], [{ type: 'distance', a: 7, b: null, value: 5 }])).toThrow(/unknown entity id 7/)
+  })
+
+  it('createIdAssigner auto-fills missing ids around taken integers', () => {
+    const ids = createIdAssigner('entity')
+    expect(ids.claim(5, 'entities[0]')).toBe(5)
+    expect(ids.claim(undefined, 'entities[1]')).toBe(0)
+    expect(ids.claim('iA', 'entities[2]')).toBe(1)
+    expect(ids.ref('iA', 'constraints[0].a')).toBe(1)
+    expect(() => ids.claim(5, 'entities[3]')).toThrow(/duplicate entity id 5/)
+  })
+
+  it('guards pre-v0.15.2 persisted models (NaN→null ids, string refs) at build time', () => {
+    expect(() => buildSolverModel({ entities: [{ id: null as never, instance: 'a3' }], constraints: [] }, [])).toThrow(/re-declare/)
+    expect(() => buildSolverModel(
+      { entities: [{ id: 0, geometry: { type: 'point2', x: 0, y: 0 } }], constraints: [{ id: 0, kind: { type: 'coincident', a: 'iA' as never, b: 0 } }] },
+      [],
+    )).toThrow(/non-numeric a ref/)
   })
 })
 

@@ -33,6 +33,23 @@ export interface ConstraintEntry {
     kind: Record<string, unknown>;
     label?: string;
 }
+/**
+ * Id assigner for one namespace (entities, constraints). Solver ids are u32s,
+ * but LLM callers naturally pass string labels too ("iA"); labels alias to the
+ * smallest free integer, and malformed ids (floats, negatives, NaN) fail here
+ * with a precise message — the #8 bug was `Number("iA")` → NaN → `null` in the
+ * solver JSON, a cryptic Rust-side deserialization error.
+ */
+export declare function createIdAssigner(what: string): {
+    claim: (raw: unknown, where: string) => number;
+    ref: (raw: unknown, where: string) => number;
+};
+/**
+ * Normalize raw cad_constraint args into the persisted model: ids become u32s
+ * (string labels aliased), constraint refs resolve through the same table, and
+ * every malformed id fails here instead of at solve time.
+ */
+export declare function normalizeConstraintModel(entitiesRaw: Array<Record<string, unknown>>, constraintsRaw: Array<Record<string, unknown>>): ConstraintModel;
 /** The persisted constraint model (op log entry; the worker stores it as a no-op). */
 export interface ConstraintModel {
     entities: ConstraintEntity[];

@@ -23,6 +23,7 @@ import type { ModelOp, OpResult } from '../modeling/client.js'
 import { solveModel } from '../modeling/ansatz-bridge.js'
 import {
   buildSolverModel,
+  normalizeConstraintModel,
   rigid3ToInstance,
   solvedRigid3s,
 } from '../modeling/constraints.js'
@@ -129,19 +130,19 @@ export function createConstraintTools(ctx: ConstraintToolCtx): ToolDefinition[] 
       'Declare the constraint model for the Ansatz solver: `entities` (2D geometry, or `instance` refs to assembly instances — their rigid3 poses sync live at solve time) + `constraints` ' +
       '(coincident/collinear/parallel/perpendicular/tangent/distance/angle/symmetric/fixed/mate/coaxial with a/b entity ids and value params, mm & radians). ' +
       'Persisted in the document op log; solved with cad_solve. Solver capability is staged — unsupported kinds fail with a precise diagnostic.',
-    parameters: {
-      entities: {
-        type: 'array',
-        description: 'Entities: {id, instance? (assembly instanceId) | geometry: {type: "point2"|"line2"|"circle2"|"arc2"|"rigid3", …}}.',
-        items: { type: 'json', description: 'One entity object.' },
+      parameters: {
+        entities: {
+          type: 'array',
+          description: 'Entities: {id, instance? (assembly instanceId) | geometry: {type: "point2"|"line2"|"circle2"|"arc2"|"rigid3", …}}. id: non-negative integer (u32) — or a string label, which is auto-mapped to a free integer; constraints reference entities by the same ids.',
+          items: { type: 'json', description: 'One entity object.' },
+        },
+        constraints: {
+          type: 'array',
+          description: 'Constraints: {type, a, b?, value?, label?} — e.g. {type: "distance", a: 0, b: null, value: 10}. a/b (and c/about for collinear/symmetric) are entity ids from the entities array (labels resolve to their mapped integers).',
+          items: { type: 'json', description: 'One constraint object.' },
+        },
+        clear: { type: 'boolean', description: 'Clear the stored constraint model.' },
       },
-      constraints: {
-        type: 'array',
-        description: 'Constraints: {type, a, b?, value?, label?} — e.g. {type: "distance", a: 0, b: null, value: 10}.',
-        items: { type: 'json', description: 'One constraint object.' },
-      },
-      clear: { type: 'boolean', description: 'Clear the stored constraint model.' },
-    },
     output: {
       schema: {
         type: 'object',
@@ -173,21 +174,7 @@ export function createConstraintTools(ctx: ConstraintToolCtx): ToolDefinition[] 
         const entities = (args.entities ?? []) as Array<Record<string, unknown>>
         const constraints = (args.constraints ?? []) as Array<Record<string, unknown>>
         if (entities.length === 0) throw new Error('entities must list at least one entity (or pass clear: true)')
-        model = {
-          entities: entities.map((entity, index) => ({
-            id: Number(entity.id ?? index),
-            ...(typeof entity.instance === 'string' ? { instance: entity.instance } : {}),
-            ...(typeof entity.geometry === 'object' && entity.geometry !== null ? { geometry: entity.geometry as Record<string, unknown> } : {}),
-          })),
-          constraints: constraints.map((constraint, index) => {
-            const { id, type, label, ...params } = constraint
-            return {
-              id: Number(id ?? index),
-              kind: { type: String(type), ...params },
-              ...(typeof label === 'string' ? { label } : {}),
-            }
-          }),
-        }
+        model = normalizeConstraintModel(entities, constraints)
       }
       const op: ModelOp = { kind: 'constraints', model: model as never }
       const result = await runModelOp(op)

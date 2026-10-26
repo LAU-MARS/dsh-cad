@@ -36,6 +36,96 @@ export interface ConstraintEntry {
   label?: string
 }
 
+/** Constraint-kind keys that hold entity refs (per the solver's schema). */
+const REF_KEYS = ['a', 'b', 'c', 'about'] as const
+
+function isRefKey(key: string): key is (typeof REF_KEYS)[number] {
+  return (REF_KEYS as readonly string[]).includes(key)
+}
+
+/** A u32-compatible id (non-negative integer; numeric strings count). */
+function parseNumericId(raw: unknown): number | undefined {
+  const value = typeof raw === 'string' && /^-?\d+$/.test(raw) ? Number(raw) : raw
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : undefined
+}
+
+/**
+ * Id assigner for one namespace (entities, constraints). Solver ids are u32s,
+ * but LLM callers naturally pass string labels too ("iA"); labels alias to the
+ * smallest free integer, and malformed ids (floats, negatives, NaN) fail here
+ * with a precise message — the #8 bug was `Number("iA")` → NaN → `null` in the
+ * solver JSON, a cryptic Rust-side deserialization error.
+ */
+export function createIdAssigner(what: string) {
+  const used = new Set<number>()
+  const aliases = new Map<string, number>()
+  const free = (): number => {
+    let id = 0
+    while (used.has(id)) id += 1
+    return id
+  }
+  const declared = (): string => [...used].sort((a, b) => a - b).join(', ')
+  const claim = (raw: unknown, where: string): number => {
+    let id: number | undefined
+    if (raw === undefined || raw === null) {
+      id = free()
+    } else if (typeof raw === 'string') {
+      id = parseNumericId(raw)
+      if (id === undefined) {
+        const existing = aliases.get(raw)
+        if (existing !== undefined) throw new Error(`${where}: duplicate ${what} id "${raw}"`)
+        id = free()
+        aliases.set(raw, id)
+      }
+    } else {
+      id = parseNumericId(raw)
+    }
+    if (id === undefined) throw new Error(`${where}: ${what} id must be a non-negative integer or a string label, got ${JSON.stringify(raw) ?? String(raw)}`)
+    if (used.has(id)) throw new Error(`${where}: duplicate ${what} id ${id}`)
+    used.add(id)
+    return id
+  }
+  /** Resolve a constraint's entity ref: numeric ids validate, labels map through the alias table. */
+  const ref = (raw: unknown, where: string): number => {
+    const id = typeof raw === 'string' ? parseNumericId(raw) ?? aliases.get(raw) : parseNumericId(raw)
+    if (id === undefined) throw new Error(`${where}: entity ref must be a non-negative integer or a declared label, got ${JSON.stringify(raw) ?? String(raw)} (declared: ${declared()})`)
+    if (!used.has(id)) throw new Error(`${where}: unknown entity id ${id} (declared: ${declared()})`)
+    return id
+  }
+  return { claim, ref }
+}
+
+/**
+ * Normalize raw cad_constraint args into the persisted model: ids become u32s
+ * (string labels aliased), constraint refs resolve through the same table, and
+ * every malformed id fails here instead of at solve time.
+ */
+export function normalizeConstraintModel(
+  entitiesRaw: Array<Record<string, unknown>>,
+  constraintsRaw: Array<Record<string, unknown>>,
+): ConstraintModel {
+  const entityIds = createIdAssigner('entity')
+  const entities: ConstraintEntity[] = entitiesRaw.map((entity, index) => ({
+    id: entityIds.claim(entity.id, `entities[${index}]`),
+    ...(typeof entity.instance === 'string' ? { instance: entity.instance } : {}),
+    ...(typeof entity.geometry === 'object' && entity.geometry !== null ? { geometry: entity.geometry as Record<string, unknown> } : {}),
+  }))
+  const constraintIds = createIdAssigner('constraint')
+  const constraints: ConstraintEntry[] = constraintsRaw.map((constraint, index) => {
+    const { id, type, label, ...params } = constraint
+    const kind: Record<string, unknown> = { type: String(type) }
+    for (const [key, value] of Object.entries(params)) {
+      kind[key] = isRefKey(key) && value !== null && value !== undefined ? entityIds.ref(value, `constraints[${index}].${key}`) : value
+    }
+    return {
+      id: constraintIds.claim(id, `constraints[${index}]`),
+      kind,
+      ...(typeof label === 'string' ? { label } : {}),
+    }
+  })
+  return { entities, constraints }
+}
+
 /** The persisted constraint model (op log entry; the worker stores it as a no-op). */
 export interface ConstraintModel {
   entities: ConstraintEntity[]
@@ -112,6 +202,7 @@ export function buildSolverModel(
   model: ConstraintModel,
   instances: AssemblyInstance[],
 ): { entities: Array<{ id: number; geometry: Record<string, unknown> }>; constraints: ConstraintEntry[] } {
+  validatePersistedModel(model)
   const byInstance = new Map(instances.map((instance) => [instance.instanceId, instance]))
   const entities = model.entities.map((entity) => {
     if (entity.instance !== undefined) {
@@ -123,6 +214,31 @@ export function buildSolverModel(
     return { id: entity.id, geometry: entity.geometry }
   })
   return { entities, constraints: model.constraints }
+}
+
+/**
+ * Guard against models persisted before the id normalization landed (#8):
+ * `Number("iA")` stored NaN, which JSON round-trips as null, and string refs
+ * passed through raw — both reached the solver as cryptic Rust errors. Point
+ * the caller at re-declaring the model instead.
+ */
+function validatePersistedModel(model: ConstraintModel): void {
+  const redo = ' — re-declare the constraint model with cad_constraint (documents from before v0.15.2 may hold broken ids)'
+  for (const entity of model.entities) {
+    if (parseNumericId(entity.id) === undefined) {
+      throw new Error(`constraint entity id must be a non-negative integer, got ${String(entity.id)}${redo}`)
+    }
+  }
+  for (const constraint of model.constraints) {
+    if (parseNumericId(constraint.id) === undefined) {
+      throw new Error(`constraint ${constraint.id} has an invalid id (${String(constraint.id)})${redo}`)
+    }
+    for (const [key, value] of Object.entries(constraint.kind)) {
+      if (isRefKey(key) && value !== null && parseNumericId(value) === undefined) {
+        throw new Error(`constraint ${constraint.id} ${String(constraint.kind.type)} has a non-numeric ${key} ref (${String(value)})${redo}`)
+      }
+    }
+  }
 }
 
 /** Extract solved rigid3 poses keyed by entity id (absent for 2D geometry). */
