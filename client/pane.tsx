@@ -34,6 +34,12 @@ const CAD_TAB_KIND = 'cad'
 /** Retry cadence for the sidebarRightTabs lookup: ~1.6s window, sub-second engagement on modern hosts. */
 const SERVICE_RETRY_DELAYS_MS = [100, 300, 600, 1200]
 
+/**
+ * Auto-open retry cadence: the session surface the controller acts on mounts
+ * a beat after the services appear (and after any session switch settles).
+ */
+const AUTO_OPEN_DELAYS_MS = [300, 900, 1800, 3000, 5000]
+
 /** The structural slice of the host's SidebarRightTabRegistry this plugin needs. */
 export interface PaneTabRegistryLike {
   register(definition: {
@@ -57,6 +63,21 @@ export interface PaneClientContext {
   get?: (name: string) => unknown
   effect?: (fn: () => () => void, label?: string) => () => void
   setTimeout?: (fn: () => void, ms: number) => unknown
+}
+
+/** The `sidebarRight` controller slice auto-open needs (openTab throws until a session surface is mounted). */
+interface PaneControllerLike {
+  openTab(kind: string, options?: Record<string, unknown>): void
+}
+
+/** The `uiSession` service slice: an observable of the current session (what sidebar-right itself watches). */
+interface UiSessionLike {
+  adapter?: {
+    current?: {
+      getSnapshot(): { key?: unknown }
+      subscribe(fn: () => void): () => void
+    }
+  }
 }
 
 /** Isometric cube outline — the tab chip and the new-tab-guide glyph. */
@@ -137,18 +158,75 @@ function tryRegisterCadPane(ctx: PaneClientContext, sessions: SessionsLike | und
 }
 
 /**
+ * Auto-open the CAD tab whenever a session becomes current: the boot load,
+ * every new session, and every switch back to an old conversation. The pane
+ * system starts every session with an empty rightbar — without this a fresh
+ * install shows no display area at all and the + menu is the only
+ * (undiscoverable) way in. While a session STAYS current, a deliberate close
+ * stays closed; the next switch re-opens — the display area is the default
+ * view of a session.
+ *
+ * Session source: the host `uiSession` service's `adapter.current` store
+ * (the same signal sidebar-right watches). `openTab` throws until the host
+ * mounted the switched-to session's surface, so each switch runs a bounded
+ * retry chain, and a newer switch supersedes the older chain. Hosts without
+ * `uiSession` degrade to the boot-time open only.
+ */
+function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
+  const generation = { current: 0 }
+  const attempt = (index: number): void => {
+    if (index === 0) generation.current += 1
+    const generationAtStart = generation.current
+    const controller = ctx.get?.('sidebarRight') as PaneControllerLike | undefined
+    if (controller != null && typeof controller.openTab === 'function') {
+      try {
+        controller.openTab(CAD_TAB_KIND)
+        try {
+          const layout = ctx.get?.('layout') as { openRightbar?: (track?: unknown, fullscreen?: unknown) => void } | undefined
+          layout?.openRightbar?.()
+        } catch { /* reveal is best-effort; placement already succeeded */ }
+        return
+      } catch { /* session surface not mounted yet — retry */ }
+    }
+    if (index >= AUTO_OPEN_DELAYS_MS.length) return
+    const retry = (): void => {
+      if (generationAtStart !== generation.current) return
+      attempt(index + 1)
+    }
+    try {
+      if (typeof ctx.setTimeout === 'function') ctx.setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
+      else setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
+    } catch {
+      setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
+    }
+  }
+  const open = (): void => { attempt(0) }
+  const uiSession = ctx.get?.('uiSession') as UiSessionLike | undefined
+  const current = uiSession?.adapter?.current
+  if (current != null && typeof current.subscribe === 'function' && typeof current.getSnapshot === 'function') {
+    const unsubscribe = current.subscribe(open)
+    ctx.effect?.(() => unsubscribe, 'dsh-cad: session auto-open watcher')
+  }
+  open()
+}
+
+/**
  * Mount the CAD panel: the rightbar pane once `sidebarRightTabs` shows up
  * (retried over the first ~1.6s — this plugin activates before the
  * sidebar-right package provides its services), else the `shell.overlay`
  * panel for hosts without the pane system.
  */
 export function mountCadPanel(ctx: PaneClientContext, sessions: SessionsLike | undefined): void {
-  if (tryRegisterCadPane(ctx, sessions)) return
+  if (tryRegisterCadPane(ctx, sessions)) {
+    watchSessionsAndAutoOpen(ctx)
+    return
+  }
   let settled = false
   const attempt = (index: number): void => {
     if (settled) return
     if (tryRegisterCadPane(ctx, sessions)) {
       settled = true
+      watchSessionsAndAutoOpen(ctx)
       return
     }
     if (index >= SERVICE_RETRY_DELAYS_MS.length) {
