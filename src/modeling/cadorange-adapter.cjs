@@ -651,6 +651,79 @@ function createCadorangeAdapter(mods) {
     return C.exportStepAssembly([{ name: rootName, color: null, transform: null, children }])
   }
 
+  // ── structured STEP import (cadorange 0.10.0, occt.ts 2.0.0) ──────────────
+
+  /** Euler degrees out of a row-major 3×3 Rx·Ry·Rz rotation (gimbal ±90° ry). */
+  function matrixEuler(r) {
+    const sy = Math.min(1, Math.max(-1, r[2] || 0))
+    const ry = Math.asin(sy) * RAD2DEG
+    if (Math.abs(Math.abs(sy) - 1) < 1e-9) {
+      return [((sy > 0 ? 1 : -1) * Math.atan2(r[3] || 0, r[4] || 0)) * RAD2DEG, ry, 0]
+    }
+    return [
+      Math.atan2(-(r[5] || 0), r[8] || 0) * RAD2DEG,
+      ry,
+      Math.atan2(-(r[1] || 0), r[0] || 0) * RAD2DEG,
+    ]
+  }
+
+  /**
+   * Parse a STEP assembly into unique parts + placed leaves. Goes through
+   * `Assembly.fromStep` — occt.ts 2.0.0 returns world-baked leaf solids with
+   * parent-relative node transforms, and fromStep un-bakes them back to local
+   * geometry + world placements (its round-trip contract). Parts dedupe by
+   * rounded (volume, area, bbox) of the LOCAL solid — instanced products in
+   * the file map to one body referenced by N instances.
+   */
+  function importStepDocument(bytes) {
+    const doc = C.importStepAssembly(bytes)
+    const asm = C.Assembly.fromStep(doc)
+    const parts = []
+    const keyIndex = new Map()
+    const leaves = []
+    const round = (value) => Math.round(value * 1000) / 1000
+    for (const leaf of asm.leafNodes()) {
+      const solid = leaf.solid
+      if (solid === undefined) continue
+      const meta = solid.meta()
+      const bb = meta.bbox
+      const key = [
+        round(meta.volume), round(meta.area),
+        ...bb.min.map(round), ...bb.max.map(round),
+      ].join('|')
+      let index = keyIndex.get(key)
+      if (index === undefined) {
+        index = parts.length
+        keyIndex.set(key, index)
+        parts.push({ name: leaf.name ?? `part${index + 1}`, shape: solid, key })
+      }
+      // worldLoc: columns (xDir, zDir×xDir, zDir) + origin → placement matrix.
+      const world = leaf.worldLoc()
+      const x = world.xDir
+      const z = world.zDir
+      const y = [z[1] * x[2] - z[2] * x[1], z[2] * x[0] - z[0] * x[2], z[0] * x[1] - z[1] * x[0]]
+      leaves.push({
+        part: index,
+        name: leaf.name ?? parts[index].name,
+        translate: [...world.origin],
+        rotate: matrixEuler([x[0], y[0], z[0], x[1], y[1], z[1], x[2], y[2], z[2]]),
+      })
+    }
+    if (parts.length === 0) throw new Error('the STEP file carries no solid geometry (empty or non-solid document)')
+    return { parts, leaves }
+  }
+
+  /** A session-owned copy of a shape (import materialization: every body
+   *  gets its own kernel object so disposing one never dangles another). */
+  function copyShape(shape) {
+    const raw = occ.toRaw(asOcc(shape))
+    try {
+      return CO.fromRaw(raw)
+    } finally {
+      if (typeof raw.delete === 'function') raw.delete()
+    }
+  }
+
   // ── engineering-drawing HLR (same kernel session, no STEP round-trip) ──────
 
   /**
@@ -720,6 +793,8 @@ function createCadorangeAdapter(mods) {
     faceNormals,
     exportFile,
     exportStepDocument,
+    importStepDocument,
+    copyShape,
     hiddenLineViewsOf,
     sketchWirePoints,
     sketchFaceMesh,

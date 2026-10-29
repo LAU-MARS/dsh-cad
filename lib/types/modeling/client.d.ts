@@ -55,6 +55,19 @@ export interface OpResult {
         positions: number[];
         indices: number[];
     };
+    /** import_step structure probe: unique parts + placed leaves (no geometry). */
+    stepStructure?: {
+        parts: Array<{
+            name: string;
+            key: string;
+        }>;
+        leaves: Array<{
+            part: number;
+            name: string;
+            translate: [number, number, number];
+            rotate: [number, number, number];
+        }>;
+    };
 }
 export interface DrawingViewSpec {
     name: string;
@@ -195,6 +208,45 @@ export type ModelOp = {
     instanceId: string;
 } | {
     kind: 'assembly_list';
+} | {
+    kind: 'assembly_joint';
+    instanceId: string;
+    label: string;
+    /** Normalized JointSpec (validated on the main thread before posting). */
+    joint: unknown;
+} | {
+    kind: 'assembly_connect';
+    /** The child instance being placed. */
+    instanceId: string;
+    parent: string;
+    parentLabel: string;
+    childLabel: string;
+    /** Merged into the parent joint's value at connect time (optional). */
+    value?: unknown;
+} | {
+    kind: 'assembly_joint_value';
+    instanceId: string;
+    label: string;
+    value: unknown;
+} | {
+    kind: 'assembly_explode';
+    factor: number;
+} | {
+    kind: 'import_step';
+    /** Sidecar asset path (workspace .dsh-cad/docs/assets/<hash>.step). */
+    path: string;
+    /** Assignments for the materialize phase (absent = structure probe). */
+    bodies?: Array<{
+        bodyId: string;
+        name: string;
+    }>;
+    instances?: Array<{
+        instanceId: string;
+        bodyId: string;
+        name: string;
+        translate: [number, number, number];
+        rotate: [number, number, number];
+    }>;
 } | {
     kind: 'constraints';
     model: {

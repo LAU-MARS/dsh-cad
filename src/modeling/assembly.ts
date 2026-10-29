@@ -10,6 +10,8 @@ import type { BinMeshData } from './bin-format.js'
 import type { AssemblyInstance, ModelOp } from './client.js'
 import type { ConstraintEntity, ConstraintEntry } from './constraints.js'
 import type { ModelDoc } from './document.js'
+import { applyConnectValue, mergeJointValue, normalizeJointSpec, jointValueText } from './joints.js'
+import type { AssemblyConnection, JointSpec } from './joints.js'
 
 /**
  * The per-instance pastel palette: instance i takes palette[i % n] both in the
@@ -101,11 +103,14 @@ function transformMesh(mesh: BinMeshData, translate: [number, number, number], r
  * by list position (see INSTANCE_PALETTE). Instances referencing bodies
  * missing from `bodies` (consumed by a later boolean) are skipped — the
  * worker's live list already filters them, this is the replay-side double
- * guard. Duplicate names get a ·N suffix (assemblyDisplayNames).
+ * guard. Duplicate names get a ·N suffix (assemblyDisplayNames). `explode`
+ * (from explodeOffsets) shifts each instance radially before composing —
+ * the exploded view, view-only math over the same placement data.
  */
 export function composeAssemblyMeshes(
   bodies: Map<string, BinMeshData>,
   instances: AssemblyInstance[],
+  explode?: ReadonlyMap<string, [number, number, number]>,
 ): BinMeshData[] {
   const meshes: BinMeshData[] = []
   const names = assemblyDisplayNames(instances)
@@ -113,8 +118,12 @@ export function composeAssemblyMeshes(
     const instance = instances[index]!
     const body = bodies.get(instance.bodyId)
     if (body === undefined) continue
+    const offset = explode?.get(instance.instanceId)
+    const translate = offset === undefined
+      ? instance.translate
+      : [instance.translate[0] + offset[0], instance.translate[1] + offset[1], instance.translate[2] + offset[2]] as [number, number, number]
     meshes.push(
-      transformMesh({ ...body, name: names[index]!, color: instanceColor(index) }, instance.translate, instance.rotate),
+      transformMesh({ ...body, name: names[index]!, color: instanceColor(index) }, translate, instance.rotate),
     )
   }
   return meshes
@@ -131,18 +140,39 @@ export interface FoldedAssembly {
    *  Folded from ops rather than read off bodyNames because documents written
    *  before pattern copies were recorded have incomplete name maps. */
   liveBodyIds: Set<string>
+  /** Joints per instance (label → spec), folded from the joint ops. */
+  joints: Map<string, Record<string, JointSpec>>
+  /** Recorded joint pairings (connect order preserved — solve replays them). */
+  connections: AssemblyConnection[]
+  /** Latest exploded-view factor (0 = assembled). */
+  explode: number
 }
 
 /**
  * Rebuild the assembly state purely from the persisted op log — the worker
  * keeps the same data live (Map insertion order = push order here), so the
  * tree endpoint serves restart-safe data without a worker round-trip.
+ *
+ * Joint ops are metadata: the placements they solve are written back through
+ * `assembly_transform` ops by the tool layer, so this fold carries specs and
+ * connections but computes no algebra — replay restores identical placements.
  */
 export function foldAssemblyState(ops: ModelOp[], bodyNames: Record<string, string>): FoldedAssembly {
   const instances: AssemblyInstance[] = []
   let entities: ConstraintEntity[] = []
   let constraints: ConstraintEntry[] = []
   const liveBodyIds = new Set<string>()
+  const joints = new Map<string, Record<string, JointSpec>>()
+  const connections: AssemblyConnection[] = []
+  let explode = 0
+  /** Defensive normalize — a corrupted joint op must not break the endpoint. */
+  const safeSpec = (raw: unknown): JointSpec | null => {
+    try {
+      return normalizeJointSpec(raw, 'joint')
+    } catch {
+      return null
+    }
+  }
   for (const op of ops) {
     switch (op.kind) {
       case 'create_prim':
@@ -190,6 +220,50 @@ export function foldAssemblyState(ops: ModelOp[], bodyNames: Record<string, stri
       case 'assembly_remove': {
         const index = instances.findIndex((entry) => entry.instanceId === op.instanceId)
         if (index !== -1) instances.splice(index, 1)
+        joints.delete(op.instanceId)
+        // Connections referencing the removed instance (either side) go with it.
+        for (let i = connections.length - 1; i >= 0; i--) {
+          if (connections[i]!.child === op.instanceId || connections[i]!.parent === op.instanceId) connections.splice(i, 1)
+        }
+        break
+      }
+      case 'assembly_joint': {
+        const spec = safeSpec(op.joint)
+        if (spec !== null) {
+          const own = joints.get(op.instanceId) ?? {}
+          own[op.label] = spec
+          joints.set(op.instanceId, own)
+        }
+        break
+      }
+      case 'assembly_connect': {
+        connections.push({ child: op.instanceId, parent: op.parent, parentLabel: op.parentLabel, childLabel: op.childLabel })
+        if (op.value !== undefined) {
+          const parentSpec = joints.get(op.parent)?.[op.parentLabel]
+          const childSpec = joints.get(op.instanceId)?.[op.childLabel]
+          if (parentSpec !== undefined && childSpec !== undefined) {
+            try {
+              const applied = applyConnectValue(parentSpec, childSpec, op.value as never, `connect ${op.parentLabel}`)
+              joints.get(op.parent)![op.parentLabel] = applied.parent
+              const childOwn = joints.get(op.instanceId)
+              if (childOwn !== undefined) childOwn[op.childLabel] = applied.child
+            } catch { /* invalid connect value — the connection still records */ }
+          }
+        }
+        break
+      }
+      case 'assembly_joint_value': {
+        const own = joints.get(op.instanceId)
+        const spec = own?.[op.label]
+        if (own !== undefined && spec !== undefined) {
+          try {
+            own[op.label] = mergeJointValue(spec, op.value as never, `joint ${op.label}`)
+          } catch { /* invalid drive value — keep the previous spec */ }
+        }
+        break
+      }
+      case 'assembly_explode': {
+        explode = typeof op.factor === 'number' && Number.isFinite(op.factor) ? op.factor : 0
         break
       }
       case 'constraints':
@@ -201,7 +275,7 @@ export function foldAssemblyState(ops: ModelOp[], bodyNames: Record<string, stri
         break
     }
   }
-  return { instances, entities, constraints, liveBodyIds }
+  return { instances, entities, constraints, liveBodyIds, joints, connections, explode }
 }
 
 /** One PARTS row of the assembly tree. */
@@ -224,17 +298,33 @@ export interface AssemblyTreeConstraint {
   b?: string
 }
 
+/** One JOINTS row of the assembly tree (a joint, plus its pairing if connected). */
+export interface AssemblyTreeJoint {
+  instanceId: string
+  label: string
+  type: string
+  /** Display text of the current motion value ("30°", "12mm · 5°"). */
+  value?: string
+  /** The owner instance's display name. */
+  owner: string
+  /** "owner.label ↔ peer.name" when this joint is one side of a pairing. */
+  link?: string
+}
+
 /** GET /dsh-cad/asm/<docId> response body. */
 export interface AssemblyTreePayload {
   docId: string
   version: number
   parts: AssemblyTreePart[]
   constraints: AssemblyTreeConstraint[]
+  joints: AssemblyTreeJoint[]
+  /** Exploded-view factor (absent when assembled). */
+  explode?: number
 }
 
 /** Build the assembly-tree payload from a restored document. */
 export function assemblyTreePayload(doc: ModelDoc): AssemblyTreePayload {
-  const { instances, entities, constraints, liveBodyIds } = foldAssemblyState(doc.ops, doc.bodyNames)
+  const { instances, entities, constraints, liveBodyIds, joints, connections, explode } = foldAssemblyState(doc.ops, doc.bodyNames)
   const names = assemblyDisplayNames(instances)
   const nameByInstanceId = new Map(instances.map((instance, index) => [instance.instanceId, names[index]!]))
   const entityName = (id: unknown): string | undefined => {
@@ -242,6 +332,33 @@ export function assemblyTreePayload(doc: ModelDoc): AssemblyTreePayload {
     const entity = entities.find((entry) => entry.id === id)
     if (entity?.instance !== undefined) return nameByInstanceId.get(entity.instance) ?? entity.instance
     return `#${id}`
+  }
+  // One link string per joint side (a pairing renders on both its joints).
+  const linkOf = new Map<string, string>()
+  for (const connection of connections) {
+    const parentName = nameByInstanceId.get(connection.parent) ?? connection.parent
+    const childName = nameByInstanceId.get(connection.child) ?? connection.child
+    const text = `${connection.parentLabel} ↔ ${connection.childLabel}`
+    linkOf.set(`${connection.parent}\u0000${connection.parentLabel}`, `${parentName} ${text}`)
+    linkOf.set(`${connection.child}\u0000${connection.childLabel}`, `${text} ${childName}`)
+  }
+  const jointRows: AssemblyTreeJoint[] = []
+  for (const instance of instances) {
+    const own = joints.get(instance.instanceId)
+    if (own === undefined) continue
+    for (const [label, spec] of Object.entries(own)) {
+      const row: AssemblyTreeJoint = {
+        instanceId: instance.instanceId,
+        label,
+        type: spec.type,
+        owner: nameByInstanceId.get(instance.instanceId) ?? instance.instanceId,
+      }
+      const value = jointValueText(spec)
+      if (value !== '') row.value = value
+      const link = linkOf.get(`${instance.instanceId}\u0000${label}`)
+      if (link !== undefined) row.link = link
+      jointRows.push(row)
+    }
   }
   return {
     docId: doc.docId,
@@ -266,5 +383,7 @@ export function assemblyTreePayload(doc: ModelDoc): AssemblyTreePayload {
       if (b !== undefined) entry.b = b
       return entry
     }),
+    joints: jointRows,
+    ...(Math.abs(explode) > 1e-12 ? { explode } : {}),
   }
 }

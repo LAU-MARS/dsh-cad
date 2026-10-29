@@ -92,6 +92,21 @@ dsh web
 export PATH="$HOME/.nvm/versions/node/v22.23.2/bin:$PATH"
 ```
 
+### 5. cadorange 0.10.0 发布包的 exports 指向 src（2026-10-29 踩坑）
+
+npm 上的 cadorange@0.10.0 包内 `package.json` 的 exports 指向 `./src/*.ts`，
+而包里只带了 `dist/`（publishConfig 未在发布时生效）——`require.resolve('cadorange')`
+直接失败，内核桥接会静默落到兄弟 checkout（无 checkout 的环境则降级直连内核）。
+**已在 `cadorange-bridge.cjs` 加固**：解析链在 Node 依赖解析失败后手动逐级探测
+`<node_modules>/cadorange/dist`（pnpm 符号链接同样命中）。验证：
+
+```sh
+node -e "console.log(require('./src/modeling/cadorange-bridge.cjs').resolveCadorangeDist())"
+# 期望输出 …node_modules\cadorange\dist
+```
+
+上游若发修复版本（exports 指回 dist），该探测成为无害兜底。
+
 `dsh` CLI（0.1.1-rc.2，满足 engines 要求）装在该 node 的全局 `node_modules` 下，
 PATH 修正后即可用。
 

@@ -29,6 +29,16 @@ export interface AssemblyTreeConstraint {
   b?: string
 }
 
+/** One JOINTS row (mirrors AssemblyTreeJoint server-side). */
+export interface AssemblyTreeJoint {
+  instanceId: string
+  label: string
+  type: string
+  value?: string
+  owner: string
+  link?: string
+}
+
 /** GET /dsh-cad/asm/<docId> response. */
 export interface AssemblyTreeData {
   docId: string
@@ -36,6 +46,8 @@ export interface AssemblyTreeData {
   name?: string
   parts: AssemblyTreePart[]
   constraints: AssemblyTreeConstraint[]
+  joints: AssemblyTreeJoint[]
+  explode?: number
 }
 
 /** Fetch the assembly tree; re-fetches when the document version changes. */
@@ -90,6 +102,24 @@ function constraintTitle(constraint: AssemblyTreeConstraint): string {
 function constraintRefs(constraint: AssemblyTreeConstraint): string {
   if (constraint.a !== undefined && constraint.b !== undefined) return `${constraint.a} ↔ ${constraint.b}`
   return constraint.a ?? constraint.b ?? ''
+}
+
+/** Chinese labels for the joint kinds. */
+const JOINT_ZH: Record<string, string> = {
+  rigid: '刚性',
+  revolute: '旋转',
+  linear: '滑动',
+  cylindrical: '圆柱',
+  ball: '球面',
+  planar: '平面',
+  polar: '极坐标',
+}
+
+/** "旋转 Revolute" — the bold lead of a joint row. */
+function jointTitle(joint: AssemblyTreeJoint): string {
+  const zh = JOINT_ZH[joint.type]
+  const en = joint.type.charAt(0).toUpperCase() + joint.type.slice(1)
+  return zh === undefined ? en : `${zh} ${en}`
 }
 
 function LinkIcon(): JSX.Element {
@@ -152,9 +182,12 @@ export interface AssemblyTreeProps {
 
 export function AssemblyTree({ tree, selected, onSelect, hidden, onToggleHidden, onCollapse }: AssemblyTreeProps): JSX.Element {
   const [partsOpen, setPartsOpen] = useState(true)
+  const [jointsOpen, setJointsOpen] = useState(true)
   const [constraintsOpen, setConstraintsOpen] = useState(true)
   const parts = tree?.parts ?? []
   const constraints = tree?.constraints ?? []
+  const joints = tree?.joints ?? []
+  const explode = tree?.explode
 
   return (
     <div style={styles.root}>
@@ -167,7 +200,7 @@ export function AssemblyTree({ tree, selected, onSelect, hidden, onToggleHidden,
         </span>
         <span style={styles.headerTitle} title={tree?.name}>Assembly</span>
         <span style={styles.headerStats}>
-          {parts.length} parts · {constraints.length} mates
+          {parts.length} parts · {joints.length} joints{explode !== undefined ? ` · 爆炸 ×${explode}` : ''}
         </span>
         <button type="button" style={styles.collapse} onClick={onCollapse} aria-label="收起装配树" title="收起装配树">
           ‹
@@ -215,6 +248,34 @@ export function AssemblyTree({ tree, selected, onSelect, hidden, onToggleHidden,
                 </div>
               )
             })
+          )
+        ) : null}
+        <SectionHeader title="JOINTS" open={jointsOpen} onToggle={() => { setJointsOpen((open) => !open) }} />
+        {jointsOpen ? (
+          joints.length === 0 ? (
+            <div style={styles.emptyRow}>还没有关节 — 用 cad_assembly_joint 定义</div>
+          ) : (
+            joints.map((joint) => (
+              <div
+                key={`${joint.instanceId}:${joint.label}`}
+                style={styles.constraintRow}
+                title={joint.link !== undefined ? `${joint.owner} · ${joint.link}` : `${joint.owner} · ${joint.label}`}
+              >
+                <span style={styles.jointIcon}>
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden>
+                    <circle cx="5" cy="8" r="2.6" stroke="currentColor" strokeWidth="1.3" />
+                    <circle cx="11" cy="8" r="2.6" stroke="currentColor" strokeWidth="1.3" />
+                  </svg>
+                </span>
+                <span style={styles.constraintText}>
+                  <span style={styles.constraintTitle}>
+                    {jointTitle(joint)}
+                    {joint.value === undefined ? '' : ` ${joint.value}`}
+                  </span>
+                  <span style={styles.constraintRefs}> {joint.link ?? `${joint.owner}.${joint.label}`}</span>
+                </span>
+              </div>
+            ))
           )
         ) : null}
         <SectionHeader title="CONSTRAINTS" open={constraintsOpen} onToggle={() => { setConstraintsOpen((open) => !open) }} />
@@ -404,6 +465,13 @@ const styles: Record<string, React.CSSProperties> = {
     color: 'var(--dsw-alias-label-secondary, #374151)',
   },
   constraintIcon: {
+    flex: 'none',
+    display: 'flex',
+    alignItems: 'center',
+    marginTop: 1,
+    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
+  },
+  jointIcon: {
     flex: 'none',
     display: 'flex',
     alignItems: 'center',

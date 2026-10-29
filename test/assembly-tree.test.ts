@@ -132,6 +132,29 @@ describe('assemblyTreePayload', () => {
     expect(payload.parts[0]!.missing).toBe(true)
     expect(payload.constraints[0]).toEqual({ id: 1, type: 'distance', label: 'gap', a: '#2' })
   })
+
+  it('serves joint rows with pairing links and the explode factor', () => {
+    const ops: ModelOp[] = [
+      { kind: 'assembly_insert', instanceId: 'a1', bodyId: 'b1', name: 'base' },
+      { kind: 'assembly_insert', instanceId: 'a2', bodyId: 'b2', name: 'arm' },
+      { kind: 'assembly_insert', instanceId: 'a3', bodyId: 'b3', name: 'probe' },
+      { kind: 'assembly_joint', instanceId: 'a1', label: 'hinge', joint: { type: 'revolute', axis: [0, 0, 1], value: 30 } },
+      { kind: 'assembly_joint', instanceId: 'a2', label: 'mount', joint: { type: 'rigid' } },
+      { kind: 'assembly_connect', instanceId: 'a2', parent: 'a1', parentLabel: 'hinge', childLabel: 'mount' },
+      { kind: 'assembly_joint', instanceId: 'a3', label: 'tip', joint: { type: 'ball' } },
+      { kind: 'assembly_explode', factor: 1.5 },
+    ]
+    const payload = assemblyTreePayload({ docId: 'doc-2', version: 3, ops, bodyNames: {} })
+    expect(payload.joints).toEqual([
+      { instanceId: 'a1', label: 'hinge', type: 'revolute', value: '30°', owner: 'base', link: 'base hinge ↔ mount' },
+      { instanceId: 'a2', label: 'mount', type: 'rigid', owner: 'arm', link: 'hinge ↔ mount arm' },
+      { instanceId: 'a3', label: 'tip', type: 'ball', owner: 'probe' },
+    ])
+    expect(payload.explode).toBe(1.5)
+    // Assembled documents omit the field entirely.
+    const assembled = assemblyTreePayload({ docId: 'doc-2', version: 2, ops: ops.slice(0, 3), bodyNames: {} })
+    expect(assembled.explode).toBeUndefined()
+  })
 })
 
 describe('GET /dsh-cad/asm/<docId>', () => {

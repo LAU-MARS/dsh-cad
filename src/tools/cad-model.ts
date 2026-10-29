@@ -9,7 +9,7 @@
  * only defined keys (an explicit undefined fails the registry's
  * lossless-JSON validation).
  */
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { defineTool } from '@deepseek-ai/dsh-tools'
@@ -20,11 +20,23 @@ import { ModelDocument } from '../modeling/document.js'
 import { DocumentRegistry } from '../modeling/registry.js'
 import type { BinarySceneStore } from '../modeling/bin-store.js'
 import type { BinMeshData } from '../modeling/bin-format.js'
-import { composeAssemblyMeshes } from '../modeling/assembly.js'
+import { composeAssemblyMeshes, foldAssemblyState } from '../modeling/assembly.js'
+import type { FoldedAssembly } from '../modeling/assembly.js'
 import { buildDrawingSheet, drawingToDxf, drawingToSvg } from '../modeling/drawing.js'
 import type { DrawingSheet } from '../modeling/drawing.js'
 import type { SceneStore } from '../store.js'
-import { resolveSessionPath } from './util.js'
+import { loadCadFile, resolveSessionPath } from './util.js'
+import {
+  applyConnectValue,
+  checkPairing,
+  explodeOffsets,
+  jointValueText,
+  mergeJointValue,
+  normalizeJointSpec,
+  solveConnection,
+  solveConnections,
+} from '../modeling/joints.js'
+import type { Placement } from '../modeling/joints.js'
 import { toDcPrtDocument } from '../feature_script/dc_prt.js'
 import { createConstraintTools } from './cad-constraint.js'
 import type { ConstraintModel } from '../modeling/constraints.js'
@@ -146,7 +158,9 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     // Re-publish the assembly scene so a document opened after a restart shows
     // the composed (per-instance colored) assembly, not the stale disk mirror.
     if (replayedInstances !== null && deps.ensureSceneRoute() !== null) {
-      await deps.store.publish(`asm-${document.doc.docId}`, composeAssemblyMeshes(meshCache, replayedInstances))
+      const { explode } = foldAssemblyState(document.doc.ops, document.doc.bodyNames)
+      const offsets = explodeOffsets(meshCache, replayedInstances, explode)
+      await deps.store.publish(`asm-${document.doc.docId}`, composeAssemblyMeshes(meshCache, replayedInstances, offsets.size > 0 ? offsets : undefined))
     }
     syncedEpoch = workerResetEpoch()
   }
@@ -329,13 +343,17 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
    * Assembly sync: compose instance meshes from the body cache (pure
    * transform math), publish the packed assembly scene under the stable
    * `asm-<docId>` viewId, and record the op. Runs instead of syncScene —
-   * body geometry is untouched by assembly ops.
+   * body geometry is untouched by assembly ops. The composed scene honors
+   * the document's exploded-view factor (folded from the op log after the
+   * record, so the just-recorded explode op takes effect immediately).
    */
   async function syncAssembly(op: ModelOp, result: OpResult, filePath?: string): Promise<Record<string, unknown>> {
     const instances = result.instances ?? []
-    const meshes = composeAssemblyMeshes(meshCache, instances)
     await document.record(op, null)
     await deps.registry.touch(document.doc.docId, { opCount: document.doc.version, bodyCount: meshCache.size })
+    const { explode } = foldAssemblyState(document.doc.ops, document.doc.bodyNames)
+    const offsets = explodeOffsets(meshCache, instances, explode)
+    const meshes = composeAssemblyMeshes(meshCache, instances, offsets.size > 0 ? offsets : undefined)
     const sceneUrlBase = deps.ensureSceneRoute()
     if (sceneUrlBase !== null) {
       // Publish even when empty — removing the last instance must refresh the tab.
@@ -1562,6 +1580,474 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     presentResult: () => ({ card: 'generic', title: '装配移除' }),
   }) as unknown as ToolDefinition
 
+  // ── joint-driven assembly (cadorange 0.10.0 joint algebra, main-thread) ────
+
+  /** Fold the ACTIVE document's assembly state (placements + joints). */
+  const foldActive = (): FoldedAssembly => foldAssemblyState(document.doc.ops, document.doc.bodyNames)
+
+  const placementEqual = (a: Placement, b: { translate: readonly number[]; rotate: readonly number[] }): boolean =>
+    a.translate.every((v, i) => Math.abs(v - (b.translate[i] ?? 0)) < 1e-6) &&
+    a.rotate.every((v, i) => Math.abs(v - (b.rotate[i] ?? 0)) < 1e-6)
+
+  /** Flat joint rows (id/name/label/type/value) for tool outputs. */
+  const jointRows = (state: FoldedAssembly): Array<Record<string, unknown>> => {
+    const rows: Array<Record<string, unknown>> = []
+    for (const instance of state.instances) {
+      for (const [label, spec] of Object.entries(state.joints.get(instance.instanceId) ?? {})) {
+        const row: Record<string, unknown> = {
+          instance: instance.instanceId,
+          name: instance.name,
+          label,
+          type: spec.type,
+        }
+        const value = jointValueText(spec)
+        if (value !== '') row.value = value
+        rows.push(row)
+      }
+    }
+    return rows
+  }
+
+  /**
+   * Re-solve every recorded connection at the joints' CURRENT values and
+   * write changed child placements back through recorded assembly_transform
+   * ops — the drive/solve motion path. Returns the moved placements.
+   */
+  async function recomputeConnections(): Promise<Array<{ instanceId: string; translate: [number, number, number]; rotate: [number, number, number] }>> {
+    const state = foldActive()
+    const solved = solveConnections(state.instances, state.joints, state.connections)
+    const moved: Array<{ instanceId: string; translate: [number, number, number]; rotate: [number, number, number] }> = []
+    for (const instance of state.instances) {
+      const placement = solved.get(instance.instanceId)
+      if (placement === undefined || placementEqual(placement, instance)) continue
+      const op: ModelOp = { kind: 'assembly_transform', instanceId: instance.instanceId, translate: placement.translate, rotate: placement.rotate }
+      const result = await runModelOp(op)
+      await syncAssembly(op, result)
+      moved.push({ instanceId: instance.instanceId, translate: placement.translate, rotate: placement.rotate })
+    }
+    return moved
+  }
+
+  /** Shared output schema fields for tools that emit `moved` placements. */
+  const movedSchema = {
+    moved: {
+      type: 'array' as const,
+      description: 'Instances re-placed by the solve, with their new placements.',
+      items: {
+        type: 'json' as const,
+        description: '{ instanceId, translate: [x,y,z], rotate: [rx,ry,rz] }.',
+      },
+    },
+  }
+
+  /**
+   * Assembly stats for read-style outputs (instance count + composed
+   * triangle count at the current explode factor).
+   */
+  const assemblyStats = (): { instances: number; triangles: number } => {
+    const state = foldActive()
+    const offsets = explodeOffsets(meshCache, state.instances, state.explode)
+    const triangles = composeAssemblyMeshes(meshCache, state.instances, offsets.size > 0 ? offsets : undefined)
+      .reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
+    return { instances: state.instances.length, triangles }
+  }
+
+  const cadAssemblyJoint = defineTool({
+    name: 'cad_assembly_joint',
+    description:
+      'Define a joint on an assembly instance (the build123d joint family): rigid 刚性 / revolute 旋转铰 / linear 滑动 / cylindrical 圆柱 / ball 球面 / planar 平面 / polar 极坐标. ' +
+      'The joint frame (`at` + `axis` + optional `xDir`) lives in the INSTANCE\'s local coordinates (mm, degrees). Joints are placement data — pair them with cad_assembly_connect to solve placements. ' +
+      'Redefining a label replaces the joint.',
+    parameters: {
+      instanceId: { type: 'string', required: true, description: 'InstanceId that owns the joint.' },
+      label: { type: 'string', required: true, description: 'Joint label — connect references instances by label (e.g. "axis", "pin").' },
+      joint: {
+        type: 'json',
+        required: true,
+        description:
+          '{ type: "rigid"|"revolute"|"linear"|"cylindrical"|"ball"|"planar"|"polar", at?: [x,y,z] frame origin (local), axis?: [x,y,z] joint axis (default +Z), xDir?: [x,y,z] zero-position reference, ' +
+          'value?: number | { angle?, linear?, radial?, position?: [u,v], angles?: [ax,ay,az] }, angularRange?: [min,max]°, linearRange?: [min,max]mm }.',
+      },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ...assemblySchema,
+          joint: { type: 'json', description: 'The stored joint (type + value text).' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderAssembly(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const spec = normalizeJointSpec(args.joint, 'joint')
+      const state = foldActive()
+      if (!state.instances.some((instance) => instance.instanceId === args.instanceId)) {
+        throw new Error(`unknown instance: ${String(args.instanceId)} — insert it with cad_assembly_insert first`)
+      }
+      const op: ModelOp = { kind: 'assembly_joint', instanceId: args.instanceId, label: args.label, joint: spec }
+      const result = await runModelOp(op)
+      const value = await syncAssembly(op, result)
+      const text = jointValueText(spec)
+      return { ...value, joint: { instanceId: args.instanceId, label: args.label, type: spec.type, ...(text !== '' ? { value: text } : {}) } } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `关节 ${String(args.instanceId)}.${String(args.label)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '定义关节' }),
+  }) as unknown as ToolDefinition
+
+  const cadAssemblyConnect = defineTool({
+    name: 'cad_assembly_connect',
+    description:
+      'Place a child instance by pairing joints: the parent stays fixed, the child is repositioned so the two joint frames coincide (with motion values applied) — 装配配合的关节版. ' +
+      'Pairing rules: a rigid child connects to any parent kind; non-rigid parents take a rigid child (linear also takes revolute). Optional `value` sets the parent joint\'s motion at connect time. ' +
+      'The connection is recorded — cad_assembly_drive re-solves it at new joint values.',
+    parameters: {
+      instanceId: { type: 'string', required: true, description: 'Child instance to place.' },
+      parent: { type: 'string', required: true, description: 'Parent (fixed) instance.' },
+      parentLabel: { type: 'string', required: true, description: 'Parent joint label.' },
+      childLabel: { type: 'string', required: true, description: 'Child joint label.' },
+      value: { type: 'json', description: 'Parent joint motion at connect time (number or { angle?, linear?, … }).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ...assemblySchema,
+          placement: { type: 'json', description: 'The solved child placement { translate, rotate }.' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderAssembly(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const state = foldActive()
+      const child = state.instances.find((instance) => instance.instanceId === args.instanceId)
+      const parent = state.instances.find((instance) => instance.instanceId === args.parent)
+      if (child === undefined) throw new Error(`unknown instance: ${String(args.instanceId)}`)
+      if (parent === undefined) throw new Error(`unknown instance: ${String(args.parent)}`)
+      const parentSpec = state.joints.get(parent.instanceId)?.[args.parentLabel as string]
+      const childSpec = state.joints.get(child.instanceId)?.[args.childLabel as string]
+      if (parentSpec === undefined) {
+        throw new Error(`no joint "${String(args.parentLabel)}" on ${parent.instanceId} — define it with cad_assembly_joint`)
+      }
+      if (childSpec === undefined) {
+        throw new Error(`no joint "${String(args.childLabel)}" on ${child.instanceId} — define it with cad_assembly_joint`)
+      }
+      checkPairing(parentSpec.type, childSpec.type, `connect ${parent.instanceId}.${String(args.parentLabel)} ↔ ${child.instanceId}.${String(args.childLabel)}`)
+      const applied = args.value !== undefined
+        ? applyConnectValue(parentSpec, childSpec, args.value as never, `connect ${parent.instanceId}.${String(args.parentLabel)}`)
+        : { parent: parentSpec, child: childSpec }
+      const placement = solveConnection(parent, applied.parent, applied.child)
+      const connectOp: ModelOp = {
+        kind: 'assembly_connect',
+        instanceId: child.instanceId,
+        parent: parent.instanceId,
+        parentLabel: args.parentLabel as string,
+        childLabel: args.childLabel as string,
+        ...(args.value !== undefined ? { value: args.value } : {}),
+      }
+      const connectResult = await runModelOp(connectOp)
+      await syncAssembly(connectOp, connectResult)
+      const transformOp: ModelOp = {
+        kind: 'assembly_transform',
+        instanceId: child.instanceId,
+        translate: placement.translate,
+        rotate: placement.rotate,
+      }
+      const transformResult = await runModelOp(transformOp)
+      const value = await syncAssembly(transformOp, transformResult)
+      return { ...value, placement: { translate: placement.translate, rotate: placement.rotate } } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `配合 ${String(args.parent)} ↔ ${String(args.instanceId)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '关节配合' }),
+  }) as unknown as ToolDefinition
+
+  const cadAssemblyDrive = defineTool({
+    name: 'cad_assembly_drive',
+    description:
+      'Drive a joint\'s motion value, then re-solve every recorded connection (运动仿真的一步): set angle/linear/etc., the solver replays all pairings at the new value and writes changed placements back. ' +
+      'Value forms per kind — revolute: number (°); linear: number (mm); cylindrical: { angle, linear }; ball: { angles: [ax,ay,az] }; planar: { angle, position: [u,v] }; polar: { angle, radial }. ' +
+      'Ranges declared on the joint are enforced.',
+    parameters: {
+      instanceId: { type: 'string', required: true, description: 'Instance owning the joint.' },
+      label: { type: 'string', required: true, description: 'Joint label.' },
+      value: { type: 'json', required: true, description: 'New motion value (number or kind-appropriate object).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ...assemblySchema,
+          joint: { type: 'json', description: 'The driven joint (label/type/value text).' },
+          ...movedSchema,
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderAssembly(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const state = foldActive()
+      const spec = state.joints.get(args.instanceId)?.[args.label as string]
+      if (spec === undefined) {
+        throw new Error(`no joint "${String(args.label)}" on ${String(args.instanceId)} — define it with cad_assembly_joint`)
+      }
+      const merged = mergeJointValue(spec, args.value as never, `drive ${String(args.instanceId)}.${String(args.label)}`)
+      const op: ModelOp = { kind: 'assembly_joint_value', instanceId: args.instanceId, label: args.label as string, value: merged.value }
+      const result = await runModelOp(op)
+      await syncAssembly(op, result)
+      const moved = await recomputeConnections()
+      const stats = assemblyStats()
+      const text = jointValueText(merged)
+      return {
+        instanceId: args.instanceId,
+        joint: { instanceId: args.instanceId, label: args.label as string, type: merged.type, ...(text !== '' ? { value: text } : {}) },
+        moved,
+        ...stats,
+        viewId: `asm-${document.doc.docId}`,
+        bodies: meshCache.size,
+        version: document.doc.version,
+        ...(deps.ensureSceneRoute() !== null
+          ? { sceneUrl: `${deps.ensureSceneRoute()!.replace('/scene', '/bin')}/asm-${document.doc.docId}?v=${document.doc.version}` }
+          : {}),
+      } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `驱动 ${String(args.instanceId)}.${String(args.label)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '驱动关节' }),
+  }) as unknown as ToolDefinition
+
+  const cadAssemblySolve = defineTool({
+    name: 'cad_assembly_solve',
+    description:
+      'Re-solve every recorded joint pairing at current values (e.g. after manually moving a parent with cad_assembly_move). Children are re-placed from their parents\' current placements. ' +
+      'No-op when the assembly has no connections.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { ...assemblySchema, ...movedSchema },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderAssembly(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(_args, exec: unknown) {
+      await resolveDoc(exec)
+      const moved = await recomputeConnections()
+      return {
+        moved,
+        ...assemblyStats(),
+        viewId: `asm-${document.doc.docId}`,
+        bodies: meshCache.size,
+        version: document.doc.version,
+        ...(deps.ensureSceneRoute() !== null
+          ? { sceneUrl: `${deps.ensureSceneRoute()!.replace('/scene', '/bin')}/asm-${document.doc.docId}?v=${document.doc.version}` }
+          : {}),
+      } as never
+    },
+    presentCall: () => ({ card: 'generic', title: '求解装配', kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '求解装配' }),
+  }) as unknown as ToolDefinition
+
+  const cadAssemblyExplode = defineTool({
+    name: 'cad_assembly_explode',
+    description:
+      'Set the exploded-view factor (爆炸图): every instance is pushed radially away from the assembly center — distance × factor (factor 0 = assembled, negative implodes). ' +
+      'View-state only: body geometry, exports and drawings stay assembled. Persists in the document op log.',
+    parameters: {
+      factor: { type: 'number', required: true, description: 'Explode factor (0 = assembled).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: { ...assemblySchema, explode: { type: 'number', required: true, description: 'The stored explode factor.' } },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderAssembly(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      if (typeof args.factor !== 'number' || !Number.isFinite(args.factor)) throw new Error('factor must be a finite number')
+      const op: ModelOp = { kind: 'assembly_explode', factor: args.factor }
+      const result = await runModelOp(op)
+      const value = await syncAssembly(op, result)
+      return { ...value, explode: args.factor } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `爆炸 ×${String(args.factor)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: '爆炸视图' }),
+  }) as unknown as ToolDefinition
+
+  const cadAssemblyInfo = defineTool({
+    name: 'cad_assembly_info',
+    description:
+      'Read the assembly state: every instance (placement), joint (label/kind/value) and recorded pairing, plus the explode factor. Call this before connecting or driving to see current labels.',
+    parameters: {},
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          instances: {
+            type: 'array',
+            required: true,
+            description: 'Placed instances.',
+            items: { type: 'json', description: '{ instanceId, bodyId, name, translate, rotate }.' },
+          },
+          joints: { type: 'array', required: true, description: 'Defined joints.', items: { type: 'json', description: '{ instance, name, label, type, value? }.' } },
+          connections: { type: 'array', required: true, description: 'Recorded pairings.', items: { type: 'json', description: '{ child, parent, parentLabel, childLabel }.' } },
+          explode: { type: 'number', description: 'Exploded-view factor (absent when assembled).' },
+          bodies: { type: 'number', required: true, description: 'Bodies in the document.' },
+          version: { type: 'number', required: true, description: 'Document version.' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderAssemblyInfo(value as unknown as Record<string, unknown>) }],
+    },
+    isConcurrencySafe: () => true,
+    async execute(_args, exec: unknown) {
+      await resolveDoc(exec)
+      const state = foldActive()
+      return {
+        instances: state.instances.map((instance) => ({
+          instanceId: instance.instanceId,
+          bodyId: instance.bodyId,
+          name: instance.name,
+          translate: instance.translate,
+          rotate: instance.rotate,
+        })),
+        joints: jointRows(state),
+        connections: state.connections,
+        ...(Math.abs(state.explode) > 1e-12 ? { explode: state.explode } : {}),
+        bodies: meshCache.size,
+        version: document.doc.version,
+      } as never
+    },
+    presentCall: () => ({ card: 'generic', title: '装配信息', kind: 'read' }),
+    presentResult: () => ({ card: 'generic', title: '装配信息' }),
+  }) as unknown as ToolDefinition
+
+  /** Text render for cad_assembly_info (labels are the load-bearing part). */
+  const renderAssemblyInfo = (value: Record<string, unknown>): string => {
+    const instances = Array.isArray(value.instances) ? (value.instances as Array<Record<string, unknown>>) : []
+    const joints = Array.isArray(value.joints) ? (value.joints as Array<Record<string, unknown>>) : []
+    const connections = Array.isArray(value.connections) ? (value.connections as Array<Record<string, unknown>>) : []
+    const lines: string[] = []
+    if (instances.length === 0) {
+      lines.push('装配体为空 — 用 cad_assembly_insert 插入实例')
+    } else {
+      for (const instance of instances) {
+        lines.push(
+          `${String(instance.instanceId)} ${String(instance.name)} (${String(instance.bodyId)}) at [${(instance.translate as number[]).map((v) => Number(v.toFixed(2))).join(', ')}]`,
+        )
+      }
+    }
+    if (joints.length > 0) {
+      lines.push(`joints: ${joints.map((joint) => `${String(joint.instance)}.${String(joint.label)} ${String(joint.type)}${joint.value === undefined ? '' : ` ${String(joint.value)}`}`).join(' · ')}`)
+    }
+    if (connections.length > 0) {
+      lines.push(`connections: ${connections.map((c) => `${String(c.child)}.${String(c.childLabel)} ↔ ${String(c.parent)}.${String(c.parentLabel)}`).join(' · ')}`)
+    }
+    if (value.explode !== undefined) lines.push(`explode: ×${String(value.explode)}`)
+    return lines.join('\n')
+  }
+
+  const cadStepImport = defineTool({
+    name: 'cad_step_import',
+    description:
+      'Import a STEP file as an ASSEMBLY (结构化导入): names, part structure and instance placements survive — identical parts dedupe into one body referenced by N instances (齿轮阵列就是一个体). ' +
+      'Creates bodies + placed instances in the active document (replayable; the file is cached as a workspace asset). Requires the cadorange kernel.',
+    parameters: {
+      file: { type: 'string', required: true, description: 'STEP file path (absolute, or relative to the workspace root).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          bodies: { type: 'number', required: true, description: 'Unique imported bodies.' },
+          instances: { type: 'number', required: true, description: 'Placed instances.' },
+          parts: { type: 'array', required: true, description: 'Imported bodies.', items: { type: 'json', description: '{ bodyId, name }.' } },
+          triangles: { type: 'number', required: true, description: 'Triangle count.' },
+          version: { type: 'number', required: true, description: 'Document version.' },
+          viewId: { type: 'string', description: 'Assembly scene viewId.' },
+          sceneUrl: { type: 'string', description: 'Versioned assembly scene URL (web compositions).' },
+          filePath: { type: 'string', description: 'Cached asset path.' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: renderAssembly(value as unknown as Record<string, unknown>) }],
+      presentationMeta: (_args, value) => assemblyMetaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => false,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const resolved = resolveSessionPath(String(args.file), exec, deps.workspaceRoot)
+      const bytes = await loadCadFile(resolved)
+      if (!bytes.subarray(0, 512).toString('latin1').includes('ISO-10303')) {
+        throw new Error(`not a STEP file: ${resolved}`)
+      }
+      // Content-addressed sidecar asset — the recorded op references it, so
+      // replay re-reads the same bytes without bloating the op log.
+      const hash = createHash('sha1').update(bytes).digest('hex')
+      const assetsDir = path.join(deps.workspaceRoot, '.dsh-cad', 'docs', 'assets')
+      const assetPath = path.join(assetsDir, `${hash}.step`)
+      await mkdir(assetsDir, { recursive: true })
+      await writeFile(assetPath, bytes)
+      const probe = await runModelOp({ kind: 'import_step', path: assetPath })
+      const structure = probe.stepStructure
+      if (structure === undefined || structure.parts.length === 0) throw new Error('the STEP file parses into no solid parts')
+      const base = document.doc.version + 1
+      const bodyAssignments = structure.parts.map((part, index) => ({ bodyId: `b${base + index}`, name: part.name }))
+      const instanceAssignments = structure.leaves.map((leaf, index) => ({
+        instanceId: `a${base + index}`,
+        bodyId: bodyAssignments[leaf.part]?.bodyId ?? `b${base + leaf.part}`,
+        name: leaf.name,
+        translate: leaf.translate,
+        rotate: leaf.rotate,
+      }))
+      const op: ModelOp = { kind: 'import_step', path: assetPath, bodies: bodyAssignments, instances: instanceAssignments }
+      const result = await runModelOp(op)
+      for (const mesh of result.meshes ?? []) meshCache.set(mesh.bodyId, mirrorMesh(mesh, mesh.bodyId))
+      await document.record(op, bodyAssignments)
+      await deps.registry.touch(document.doc.docId, { opCount: document.doc.version, bodyCount: meshCache.size })
+      const sceneUrlBase = deps.ensureSceneRoute()
+      const partMeshes = [...meshCache.values()]
+      if (partMeshes.length > 0 && sceneUrlBase !== null) {
+        await deps.store.publish(document.doc.docId, partMeshes)
+      }
+      const instances = result.instances ?? []
+      const { explode } = foldActive()
+      const offsets = explodeOffsets(meshCache, instances, explode)
+      const assemblyMeshes = composeAssemblyMeshes(meshCache, instances, offsets.size > 0 ? offsets : undefined)
+      if (sceneUrlBase !== null) await deps.store.publish(`asm-${document.doc.docId}`, assemblyMeshes)
+      const triangles = assemblyMeshes.reduce((sum, mesh) => sum + mesh.indices.length / 3, 0)
+      return {
+        bodies: bodyAssignments.length,
+        instances: instanceAssignments.length,
+        parts: bodyAssignments,
+        triangles,
+        version: document.doc.version,
+        ...(sceneUrlBase !== null ? { viewId: `asm-${document.doc.docId}` } : {}),
+        ...(sceneUrlBase !== null
+          ? { sceneUrl: `${sceneUrlBase.replace('/scene', '/bin')}/asm-${document.doc.docId}?v=${document.doc.version}` }
+          : {}),
+        filePath: assetPath,
+      } as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `导入 STEP ${String(args.file)}`, kind: 'other' }),
+    presentResult: () => ({ card: 'generic', title: 'STEP 导入' }),
+  }) as unknown as ToolDefinition
+
   // ── document (file space) tools ───────────────────────────────────────────
 
   const docRefParam = { type: 'string' as const, required: true as const, description: 'Document id or exact name (list with cad_docs).' }
@@ -1822,6 +2308,13 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     cadAssemblyInsert,
     cadAssemblyMove,
     cadAssemblyRemove,
+    cadAssemblyJoint,
+    cadAssemblyConnect,
+    cadAssemblyDrive,
+    cadAssemblySolve,
+    cadAssemblyExplode,
+    cadAssemblyInfo,
+    cadStepImport,
     cadDocs,
     cadDocNew,
     cadDocOpen,
@@ -1855,6 +2348,13 @@ export const MODEL_TOOL_NAMES = [
   'cad_assembly_insert',
   'cad_assembly_move',
   'cad_assembly_remove',
+  'cad_assembly_joint',
+  'cad_assembly_connect',
+  'cad_assembly_drive',
+  'cad_assembly_solve',
+  'cad_assembly_explode',
+  'cad_assembly_info',
+  'cad_step_import',
   'cad_docs',
   'cad_doc_new',
   'cad_doc_open',
