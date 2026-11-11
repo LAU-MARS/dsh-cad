@@ -143,7 +143,7 @@ const rowStyles: Record<string, React.CSSProperties> = {
     border: '1px solid var(--dsw-alias-border-l1, #d7dbe0)',
     borderRadius: 8,
     maxWidth: 720,
-    background: 'var(--dsw-alias-bg-subtle, #f7f8fa)',
+    background: 'var(--dsw-alias-bg-layer-1, #f7f8fa)',
   },
   title: { fontWeight: 600, fontSize: 12.5 },
   stats: { fontSize: 12, color: 'var(--dsw-alias-label-tertiary, #6b7280)' },

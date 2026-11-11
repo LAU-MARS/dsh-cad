@@ -134,7 +134,7 @@ async function applyOp(op) {
     }
     case 'chamfer': {
       const body = requireShape(op.target, 'chamfer')
-      const shape = adapter.chamferAll(body.shape, op.distance)
+      const shape = adapter.chamferEdges(body.shape, op.distance, resolveEdgeIndices(body.shape, op), op.length2)
       assertUsable(shape, 'chamfer', '距离可能超出相邻面')
       replaceShape(body, shape)
       return { bodyId: op.target, name: body.name, mesh: meshOf(shape, body.name) }
@@ -229,7 +229,7 @@ async function applyOp(op) {
     }
     case 'fillet': {
       const body = requireShape(op.target, 'fillet')
-      const shape = adapter.filletAll(body.shape, op.radius ?? 1)
+      const shape = adapter.filletEdges(body.shape, op.radius ?? 1, resolveEdgeIndices(body.shape, op))
       assertUsable(shape, 'fillet', '半径可能超出相邻面')
       replaceShape(body, shape)
       return { bodyId: op.target, name: body.name, mesh: meshOf(shape, body.name) }
@@ -397,6 +397,10 @@ async function applyOp(op) {
       }
       return result
     }
+    case 'describe': {
+      const body = requireShape(op.target, 'describe')
+      return { bodyId: op.target, name: body.name, describe: adapter.describe(body.shape) }
+    }
     case 'delete': {
       const entry = bodies.get(op.target)
       if (!bodies.delete(op.target)) throw new Error(`unknown body: ${op.target}`)
@@ -473,6 +477,38 @@ function matchFacesByNormal(shape, openNormals) {
     if (best !== null) picked.push(best)
   }
   return picked
+}
+
+/** Edge indices (1-based) for a fillet/chamfer selection; null = every edge. */
+function resolveEdgeIndices(shape, op) {
+  const explicit = Array.isArray(op.edges) && op.edges.length > 0 ? op.edges.map((n) => Math.trunc(Number(n))) : null
+  const along = Array.isArray(op.edgesAlong) && op.edgesAlong.length === 3 ? op.edgesAlong.map(Number) : null
+  if (explicit === null && along === null) return null
+  if (typeof adapter.describe !== 'function') throw new Error('edge selection requires the kernel describe() backend')
+  const desc = adapter.describe(shape)
+  const edges = Array.isArray(desc.edges) ? desc.edges : []
+  let picked = edges
+  if (explicit !== null) {
+    const wanted = new Set(explicit)
+    picked = picked.filter((edge) => wanted.has(edge.index))
+  }
+  if (along !== null) {
+    const len = Math.hypot(along[0], along[1], along[2])
+    if (len < 1e-9) throw new Error('edgesAlong must be a non-zero direction vector')
+    const n = [along[0] / len, along[1] / len, along[2] / len]
+    picked = picked.filter((edge) => {
+      const dir = Array.isArray(edge.direction) ? edge.direction : Array.isArray(edge.axis) ? edge.axis : null
+      if (dir === null) return false
+      const dlen = Math.hypot(dir[0], dir[1], dir[2])
+      if (dlen < 1e-9) return false
+      return Math.abs((dir[0] * n[0] + dir[1] * n[1] + dir[2] * n[2]) / dlen) > 0.999
+    })
+  }
+  const indices = [...new Set(picked.map((edge) => edge.index))].sort((a, b) => a - b)
+  if (indices.length === 0) {
+    throw new Error(`edge selection matched no edges (${edges.length} available); check the 1-based indices from cad_edges / the edgesAlong direction`)
+  }
+  return indices
 }
 
 /** Resolve a body's live shape (single-kernel: always present). */

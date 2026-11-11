@@ -995,10 +995,13 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
   const cadChamfer = defineTool({
     name: 'cad_chamfer',
-    description: 'Chamfer (倒角): bevel every sharp edge of a body with one equal distance (mm). Fails when the distance exceeds the adjacent faces.',
+    description: 'Chamfer (倒角): bevel the selected sharp edges of a body with one distance (mm). Default = every edge. `edges` picks 1-based indices from cad_edges; `edgesAlong` picks only the straight edges parallel to a direction (e.g. [0,0,1] = vertical edges); both together = intersection. Fails when the distance exceeds the adjacent faces.',
     parameters: {
       target: bodyTarget,
       distance: { type: 'number', required: true, description: 'Chamfer distance (mm).' },
+      edges: { type: 'array', items: { type: 'number' }, description: '1-based edge indices to chamfer (default: all edges).' },
+      edgesAlong: pointParam('Chamfer only the straight edges parallel to this direction [x,y,z], e.g. [0,0,1].'),
+      length2: { type: 'number', description: 'Asymmetric bevel: second distance along the adjacent face (default: symmetric).' },
     },
     output: {
       schema: {
@@ -1016,7 +1019,14 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     isConcurrencySafe: () => false,
     async execute(args, exec: unknown) {
       await resolveDoc(exec)
-      const op: ModelOp = { kind: 'chamfer', target: args.target, distance: args.distance }
+      const op: ModelOp = {
+        kind: 'chamfer',
+        target: args.target,
+        distance: args.distance,
+        ...(Array.isArray(args.edges) && args.edges.length > 0 ? { edges: args.edges as number[] } : {}),
+        ...(Array.isArray(args.edgesAlong) && args.edgesAlong.length === 3 ? { edgesAlong: args.edgesAlong as [number, number, number] } : {}),
+        ...(typeof args.length2 === 'number' ? { length2: args.length2 } : {}),
+      }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
     },
@@ -1194,10 +1204,12 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
 
   const cadFillet = defineTool({
     name: 'cad_fillet',
-    description: 'Round every sharp edge of a body with one radius (mm). Fails when the radius exceeds the adjacent faces.',
+    description: 'Round the selected sharp edges of a body with one radius (mm). Default = every edge. `edges` picks 1-based indices from cad_edges; `edgesAlong` picks only the straight edges parallel to a direction (e.g. [0,0,1] = vertical edges); both together = intersection. Fails when the radius exceeds the adjacent faces.',
     parameters: {
       target: bodyTarget,
       radius: { type: 'number', required: true, description: 'Fillet radius (mm).' },
+      edges: { type: 'array', items: { type: 'number' }, description: '1-based edge indices to round (default: all edges).' },
+      edgesAlong: pointParam('Round only the straight edges parallel to this direction [x,y,z], e.g. [0,0,1].'),
     },
     output: {
       schema: {
@@ -1215,7 +1227,13 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     isConcurrencySafe: () => false,
     async execute(args, exec: unknown) {
       await resolveDoc(exec)
-      const op: ModelOp = { kind: 'fillet', target: args.target, radius: args.radius }
+      const op: ModelOp = {
+        kind: 'fillet',
+        target: args.target,
+        radius: args.radius,
+        ...(Array.isArray(args.edges) && args.edges.length > 0 ? { edges: args.edges as number[] } : {}),
+        ...(Array.isArray(args.edgesAlong) && args.edgesAlong.length === 3 ? { edgesAlong: args.edgesAlong as [number, number, number] } : {}),
+      }
       const result = await runModelOp(op)
       return syncScene(op, result) as never
     },
@@ -1439,6 +1457,70 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     },
     presentCall: (args) => ({ card: 'generic', title: `CAD volume ${String(args.target)}`, kind: 'read' }),
     presentResult: () => ({ card: 'generic', title: 'CAD volume' }),
+  }) as unknown as ToolDefinition
+
+  const cadEdges = defineTool({
+    name: 'cad_edges',
+    description:
+      "List a body's edges (and/or faces) with the 1-based indices cad_fillet / cad_chamfer (`edges`) and cad_shell (`open` normals) work on: " +
+      'curve type, length, straight-edge direction, center. Use it before a selective fillet/chamfer to find which edges to name.',
+    parameters: {
+      target: bodyTarget,
+      include: { type: 'string', enum: ['edges', 'faces', 'both'] as const, description: 'What to list (default edges).' },
+      limit: { type: 'number', description: 'Max rows per list (default 80, cap 400).' },
+    },
+    output: {
+      schema: {
+        type: 'object',
+        additionalProperties: false,
+        properties: {
+          ...requiredCounts,
+          ...commonOptional,
+          bodyId: { type: 'string', required: true, description: 'Interrogated bodyId.' },
+          summary: { type: 'string', required: true, description: 'Edge/face table (index, curve, length, direction, center).' },
+          edgeCount: { type: 'number', required: true, description: 'Edges in the body.' },
+          faceCount: { type: 'number', required: true, description: 'Faces in the body.' },
+        },
+      },
+      render: (_args, value) => [{ type: 'text', text: String(value.summary ?? '') }],
+      presentationMeta: (_args, value) => metaOf(value as unknown as Record<string, unknown>),
+    },
+    isConcurrencySafe: () => true,
+    async execute(args, exec: unknown) {
+      await resolveDoc(exec)
+      const op: ModelOp = { kind: 'describe', target: args.target }
+      const result = await runModelOp(op)
+      const value = await syncScene(op, result)
+      const desc = (result.describe ?? {}) as { edges?: Array<Record<string, unknown>>; faces?: Array<Record<string, unknown>> }
+      const edges = Array.isArray(desc.edges) ? desc.edges : []
+      const faces = Array.isArray(desc.faces) ? desc.faces : []
+      const fmtPoint = (p: unknown) => (Array.isArray(p) ? `(${(p as number[]).map((x) => Number(x).toFixed(1)).join(',')})` : '')
+      const fmtVec = (p: unknown) => (Array.isArray(p) ? `(${(p as number[]).map((x) => Number(x).toFixed(2)).join(',')})` : '')
+      const cap = Math.min(400, Math.max(1, Math.trunc(Number(args.limit ?? 80))))
+      const include = args.include ?? 'edges'
+      const lines = [`${args.target}: ${edges.length} edges, ${faces.length} faces`]
+      if (include !== 'faces') {
+        for (const edge of edges.slice(0, cap)) {
+          const dir = Array.isArray(edge.direction) ? ` dir=${fmtVec(edge.direction)}` : ''
+          lines.push(`#${String(edge.index)} ${String(edge.curve)} len=${Number(edge.length ?? 0).toFixed(2)}${dir} center=${fmtPoint(edge.center)}`)
+        }
+        if (edges.length > cap) lines.push(`… ${edges.length - cap} more edges (raise limit)`)
+      }
+      if (include !== 'edges') {
+        for (const face of faces.slice(0, cap)) {
+          const n = Array.isArray(face.normal) ? ` n=${fmtVec(face.normal)}` : ''
+          lines.push(`F${String(face.index)} ${String(face.surface)}${n} center=${fmtPoint(face.center)}`)
+        }
+        if (faces.length > cap) lines.push(`… ${faces.length - cap} more faces (raise limit)`)
+      }
+      value.bodyId = args.target
+      value.summary = lines.join('\n')
+      value.edgeCount = edges.length
+      value.faceCount = faces.length
+      return value as never
+    },
+    presentCall: (args) => ({ card: 'generic', title: `CAD edges ${String(args.target)}`, kind: 'read' }),
+    presentResult: () => ({ card: 'generic', title: 'CAD edges' }),
   }) as unknown as ToolDefinition
 
   const cadDrawing = defineTool({
@@ -2304,6 +2386,7 @@ export function createModelTools(deps: ModelToolDeps): ToolDefinition[] {
     cadExport,
     cadDelete,
     cadVolume,
+    cadEdges,
     cadDrawing,
     cadAssemblyInsert,
     cadAssemblyMove,
@@ -2344,6 +2427,7 @@ export const MODEL_TOOL_NAMES = [
   'cad_export',
   'cad_delete',
   'cad_volume',
+  'cad_edges',
   'cad_drawing',
   'cad_assembly_insert',
   'cad_assembly_move',
