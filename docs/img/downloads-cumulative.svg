@@ -1,28 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" role="img" aria-label="cumulative npm downloads of dsh-cad: 12,463">
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="300" viewBox="0 0 880 300" role="img" aria-label="cumulative npm downloads of dsh-cad: 12,719">
   <rect width="880" height="300" rx="8" fill="#ffffff" stroke="#e6e9ef"/>
   <text x="56" y="24" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="15" font-weight="600" fill="#1f2328">dsh-cad · npm cumulative downloads</text>
-  <text x="862" y="24" text-anchor="end" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="16" font-weight="700" fill="#4D6BFE">12,463</text>
-  <text x="56" y="39" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="10.5" fill="#6e7781">source npmjs.org · updated 2026-11-12 · 2026-08-31 → 2026-11-10</text>
+  <text x="862" y="24" text-anchor="end" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="16" font-weight="700" fill="#4D6BFE">12,719</text>
+  <text x="56" y="39" font-family="Verdana,Geneva,'DejaVu Sans',sans-serif" font-size="10.5" fill="#6e7781">source npmjs.org · updated 2026-11-13 · 2026-08-31 → 2026-11-11</text>
   <g font-family="Verdana,Geneva,'DejaVu Sans',sans-serif">
   <line x1="56" x2="862" y1="266.0" y2="266.0" stroke="#eaeef4"/>
   <text x="48" y="270.0" text-anchor="end" font-size="11" fill="#59636e">0</text>
-  <line x1="56" x2="862" y1="222.4" y2="222.4" stroke="#eaeef4"/>
-  <text x="48" y="226.4" text-anchor="end" font-size="11" fill="#59636e">2.5K</text>
-  <line x1="56" x2="862" y1="178.8" y2="178.8" stroke="#eaeef4"/>
-  <text x="48" y="182.8" text-anchor="end" font-size="11" fill="#59636e">5K</text>
-  <line x1="56" x2="862" y1="135.2" y2="135.2" stroke="#eaeef4"/>
-  <text x="48" y="139.2" text-anchor="end" font-size="11" fill="#59636e">7.5K</text>
-  <line x1="56" x2="862" y1="91.6" y2="91.6" stroke="#eaeef4"/>
-  <text x="48" y="95.6" text-anchor="end" font-size="11" fill="#59636e">10K</text>
+  <line x1="56" x2="862" y1="229.7" y2="229.7" stroke="#eaeef4"/>
+  <text x="48" y="233.7" text-anchor="end" font-size="11" fill="#59636e">2.5K</text>
+  <line x1="56" x2="862" y1="193.3" y2="193.3" stroke="#eaeef4"/>
+  <text x="48" y="197.3" text-anchor="end" font-size="11" fill="#59636e">5K</text>
+  <line x1="56" x2="862" y1="157.0" y2="157.0" stroke="#eaeef4"/>
+  <text x="48" y="161.0" text-anchor="end" font-size="11" fill="#59636e">7.5K</text>
+  <line x1="56" x2="862" y1="120.7" y2="120.7" stroke="#eaeef4"/>
+  <text x="48" y="124.7" text-anchor="end" font-size="11" fill="#59636e">10K</text>
+  <line x1="56" x2="862" y1="84.3" y2="84.3" stroke="#eaeef4"/>
+  <text x="48" y="88.3" text-anchor="end" font-size="11" fill="#59636e">12.5K</text>
   <line x1="56" x2="862" y1="48.0" y2="48.0" stroke="#eaeef4"/>
-  <text x="48" y="52.0" text-anchor="end" font-size="11" fill="#59636e">12.5K</text>
+  <text x="48" y="52.0" text-anchor="end" font-size="11" fill="#59636e">15K</text>
   <text x="56.0" y="288" text-anchor="start" font-size="11" fill="#59636e">08-31</text>
-  <text x="214.9" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-14</text>
-  <text x="373.9" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-28</text>
-  <text x="544.1" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-13</text>
-  <text x="703.1" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-27</text>
-  <text x="862.0" y="288" text-anchor="end" font-size="11" fill="#59636e">11-10</text></g>
-  <path d="M56.0,263.5L67.4,262.8L78.7,262.3L90.1,261.9L101.4,261.5L112.8,261.3L124.1,261.0L135.5,261.0L146.8,261.0L158.2,260.7L169.5,260.1L180.9,249.6L192.2,246.9L203.6,245.2L214.9,243.7L226.3,243.7L237.6,242.0L249.0,240.5L260.3,239.1L271.7,237.7L283.0,236.3L294.4,234.6L305.7,233.2L317.1,230.6L328.5,228.8L339.8,227.9L351.2,227.0L362.5,225.5L373.9,215.8L385.2,213.5L396.6,205.3L407.9,203.3L419.3,201.3L430.6,199.3L442.0,197.5L453.3,195.5L464.7,195.5L476.0,193.2L487.4,187.9L498.7,184.4L510.1,181.7L521.4,179.4L532.8,175.8L544.1,172.8L555.5,172.8L566.8,172.8L578.2,170.5L589.5,168.2L600.9,164.5L612.3,164.5L623.6,164.5L635.0,159.0L646.3,150.2L657.7,143.1L669.0,138.1L680.4,133.2L691.7,119.3L703.1,113.6L714.4,108.8L725.8,100.5L737.1,95.7L748.5,91.7L759.8,87.6L771.2,82.4L782.5,78.0L793.9,73.9L805.2,69.9L816.6,65.5L827.9,61.9L839.3,58.1L850.6,53.7L862.0,48.6L862.0,266.0L56,266.0Z" fill="rgba(77,107,254,0.13)"/>
-  <path d="M56.0,263.5L67.4,262.8L78.7,262.3L90.1,261.9L101.4,261.5L112.8,261.3L124.1,261.0L135.5,261.0L146.8,261.0L158.2,260.7L169.5,260.1L180.9,249.6L192.2,246.9L203.6,245.2L214.9,243.7L226.3,243.7L237.6,242.0L249.0,240.5L260.3,239.1L271.7,237.7L283.0,236.3L294.4,234.6L305.7,233.2L317.1,230.6L328.5,228.8L339.8,227.9L351.2,227.0L362.5,225.5L373.9,215.8L385.2,213.5L396.6,205.3L407.9,203.3L419.3,201.3L430.6,199.3L442.0,197.5L453.3,195.5L464.7,195.5L476.0,193.2L487.4,187.9L498.7,184.4L510.1,181.7L521.4,179.4L532.8,175.8L544.1,172.8L555.5,172.8L566.8,172.8L578.2,170.5L589.5,168.2L600.9,164.5L612.3,164.5L623.6,164.5L635.0,159.0L646.3,150.2L657.7,143.1L669.0,138.1L680.4,133.2L691.7,119.3L703.1,113.6L714.4,108.8L725.8,100.5L737.1,95.7L748.5,91.7L759.8,87.6L771.2,82.4L782.5,78.0L793.9,73.9L805.2,69.9L816.6,65.5L827.9,61.9L839.3,58.1L850.6,53.7L862.0,48.6" fill="none" stroke="#4D6BFE" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-  <circle cx="862.0" cy="48.6" r="4" fill="#4D6BFE" stroke="#fff" stroke-width="1.5"/>
+  <text x="212.7" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-14</text>
+  <text x="380.6" y="288" text-anchor="middle" font-size="11" fill="#59636e">09-29</text>
+  <text x="537.4" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-13</text>
+  <text x="705.3" y="288" text-anchor="middle" font-size="11" fill="#59636e">10-28</text>
+  <text x="862.0" y="288" text-anchor="end" font-size="11" fill="#59636e">11-11</text></g>
+  <path d="M56.0,263.9L67.2,263.3L78.4,262.9L89.6,262.6L100.8,262.3L112.0,262.1L123.2,261.8L134.4,261.8L145.6,261.8L156.8,261.6L167.9,261.1L179.1,252.4L190.3,250.1L201.5,248.7L212.7,247.4L223.9,247.4L235.1,246.0L246.3,244.8L257.5,243.6L268.7,242.4L279.9,241.2L291.1,239.9L302.3,238.7L313.5,236.5L324.7,235.0L335.9,234.2L347.1,233.5L358.3,232.2L369.4,224.1L380.6,222.3L391.8,215.4L403.0,213.8L414.2,212.1L425.4,210.4L436.6,208.9L447.8,207.3L459.0,207.3L470.2,205.4L481.4,200.9L492.6,198.0L503.8,195.7L515.0,193.9L526.2,190.8L537.4,188.3L548.6,188.3L559.8,188.3L570.9,186.4L582.1,184.5L593.3,181.4L604.5,181.4L615.7,181.4L626.9,176.8L638.1,169.5L649.3,163.6L660.5,159.4L671.7,155.3L682.9,143.7L694.1,139.0L705.3,135.0L716.5,128.1L727.7,124.1L738.9,120.7L750.1,117.3L761.3,113.0L772.4,109.3L783.6,105.9L794.8,102.6L806.0,98.9L817.2,95.9L828.4,92.8L839.6,89.1L850.8,84.9L862.0,81.2L862.0,266.0L56,266.0Z" fill="rgba(77,107,254,0.13)"/>
+  <path d="M56.0,263.9L67.2,263.3L78.4,262.9L89.6,262.6L100.8,262.3L112.0,262.1L123.2,261.8L134.4,261.8L145.6,261.8L156.8,261.6L167.9,261.1L179.1,252.4L190.3,250.1L201.5,248.7L212.7,247.4L223.9,247.4L235.1,246.0L246.3,244.8L257.5,243.6L268.7,242.4L279.9,241.2L291.1,239.9L302.3,238.7L313.5,236.5L324.7,235.0L335.9,234.2L347.1,233.5L358.3,232.2L369.4,224.1L380.6,222.3L391.8,215.4L403.0,213.8L414.2,212.1L425.4,210.4L436.6,208.9L447.8,207.3L459.0,207.3L470.2,205.4L481.4,200.9L492.6,198.0L503.8,195.7L515.0,193.9L526.2,190.8L537.4,188.3L548.6,188.3L559.8,188.3L570.9,186.4L582.1,184.5L593.3,181.4L604.5,181.4L615.7,181.4L626.9,176.8L638.1,169.5L649.3,163.6L660.5,159.4L671.7,155.3L682.9,143.7L694.1,139.0L705.3,135.0L716.5,128.1L727.7,124.1L738.9,120.7L750.1,117.3L761.3,113.0L772.4,109.3L783.6,105.9L794.8,102.6L806.0,98.9L817.2,95.9L828.4,92.8L839.6,89.1L850.8,84.9L862.0,81.2" fill="none" stroke="#4D6BFE" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
+  <circle cx="862.0" cy="81.2" r="4" fill="#4D6BFE" stroke="#fff" stroke-width="1.5"/>
 </svg>
