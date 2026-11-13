@@ -1,0 +1,48 @@
+# verl GRPO sketch for the CAD env — demo v1.
+#
+# ⚠️ This is a STARTING POINT, not a turnkey config: verl's agent-loop config
+# keys move between versions. Verify against the recipes in your installed
+# verl (recipe/agentLoop/ in volcengine/verl ≥ 0.4) before running.
+#
+# Prereq: the headless env server must be up:
+#     node rl/server/env_server.mjs --port 8990
+# Training data: build demo_prompts.parquet from the task prompts
+# (rl/python/scripts/make_prompts.py — TODO v2), one row per prompt.
+
+data:
+  prompt_key: prompt
+  train_files: rl/python/data/demo_prompts.parquet
+  val_files: null
+  rolling_batch_size: 64
+
+algorithm:
+  adv_estimator: grpo
+
+actor_rollout_ref:
+  model:
+    path: Qwen/Qwen2.5-1.5B-Instruct   # placeholder — any tool-calling chat model
+    enable_gradient_checkpointing: true
+  actor:
+    optim:
+      lr: 1.0e-6
+  rollout:
+    name: server                        # vLLM server rollout (agent loops)
+    agent:
+      max_turns: 12                     # hard cap = env max_steps (24) 的保守值
+      response_format: json             # tool-call JSON output
+      tool:
+        # Custom HTTP tool server: the env already implements the
+        # /initialize + /execute convention (rl/server/env_server.mjs).
+        base_url: http://127.0.0.1:8990
+        api_key: EMPTY
+        tools: rl/python/tools/cad_tools_schema.json
+  ref:
+    log_prob_micro_batch_size: null
+
+trainer:
+  total_epochs: 1
+  n_gpus_per_node: 1
+  nnodes: 1
+  logger: ["console", "wandb"]
+  project_name: dsh-cad-verl
+  experiment_name: grpo-cad-demo-v1
