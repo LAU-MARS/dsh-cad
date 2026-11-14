@@ -31,6 +31,8 @@ export interface OpResult {
     }>;
     bytes?: ArrayBuffer;
     volume?: number;
+    /** Kernel interrogation dump (describe op): faces/edges/vertices with 1-based indices. */
+    describe?: unknown;
     /** Center of mass [x,y,z] (occt.ts backend). */
     centroid?: number[];
     deleted?: string;
@@ -127,6 +129,9 @@ export type ModelOp = {
     kind: 'chamfer';
     target: string;
     distance: number;
+    length2?: number;
+    edges?: number[];
+    edgesAlong?: [number, number, number];
 } | {
     kind: 'shell';
     target: string;
@@ -164,6 +169,8 @@ export type ModelOp = {
     kind: 'fillet';
     target: string;
     radius: number;
+    edges?: number[];
+    edgesAlong?: [number, number, number];
 } | {
     kind: 'transform';
     target: string;
@@ -178,6 +185,9 @@ export type ModelOp = {
     format: 'step' | 'stl';
 } | {
     kind: 'volume';
+    target: string;
+} | {
+    kind: 'describe';
     target: string;
 } | {
     kind: 'delete';

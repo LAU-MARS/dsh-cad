@@ -43,6 +43,8 @@ export interface OpResult {
   meshes?: Array<WorkerMesh & { bodyId: string }>
   bytes?: ArrayBuffer
   volume?: number
+  /** Kernel interrogation dump (describe op): faces/edges/vertices with 1-based indices. */
+  describe?: unknown
   /** Center of mass [x,y,z] (occt.ts backend). */
   centroid?: number[]
   deleted?: string
@@ -98,17 +100,18 @@ export type ModelOp =
   | { kind: 'extrude_profile'; bodyId: string; points?: number[]; profile?: unknown; sketch?: string; height?: number; base?: number; name?: string }
   | { kind: 'loft'; bodyId: string; sections: LoftSection[]; solid?: boolean; ruled?: boolean; smooth?: boolean; name?: string }
   | { kind: 'revolve'; bodyId: string; profile?: unknown; sketch?: string; angle?: number; axis?: [number, number, number]; at?: [number, number, number]; name?: string }
-  | { kind: 'chamfer'; target: string; distance: number }
+  | { kind: 'chamfer'; target: string; distance: number; length2?: number; edges?: number[]; edgesAlong?: [number, number, number] }
   | { kind: 'shell'; target: string; thickness: number; openNormals?: Array<[number, number, number]>; faces?: number[] }
   | { kind: 'draft'; target: string; angle: number; direction?: [number, number, number]; faces?: number[] }
   | { kind: 'pattern'; target: string; mode: 'linear' | 'circular'; count: number; delta?: [number, number, number]; axis?: [number, number, number]; at?: [number, number, number]; angle?: number }
   | { kind: 'sweep'; bodyId: string; profile?: unknown; sketch?: string; path: number[]; name?: string }
   | { kind: 'boolean'; op: 'fuse' | 'cut' | 'common'; target: string; tools: string[] }
-  | { kind: 'fillet'; target: string; radius: number }
+  | { kind: 'fillet'; target: string; radius: number; edges?: number[]; edgesAlong?: [number, number, number] }
   | { kind: 'transform'; target: string; translate?: [number, number, number]; rotate?: [number, number, number]; mirror?: [number, number, number] }
   | { kind: 'tessellate_all' }
   | { kind: 'export'; target: string; format: 'step' | 'stl' }
   | { kind: 'volume'; target: string }
+  | { kind: 'describe'; target: string }
   | { kind: 'delete'; target: string }
   | { kind: 'reset' }
   | { kind: 'drawing'; target: string; views: DrawingViewSpec[]; sceneViewId?: string; name?: string; paper?: 'A4' | 'A3' }

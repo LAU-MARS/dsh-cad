@@ -45,7 +45,7 @@ Cumulative downloads from the npm registry, refreshed daily by CI:
 | 🔍 CAD viewing | STL / OBJ / STEP / IGES / BREP / DCPRT (3D), DXF / SVG (2D); interactive viewport in the resident right panel (orbit / zoom / wireframe / pan), with a one-line result row in the conversation |
 | 🌗 Dark-mode surfaces | Every rendered surface follows the host theme — viewport slab, DXF/drawing strokes, the Three.js grid / XYZ triad / feature edges / default mesh color / sketch overlays, and the ViewCube plate; a theme flip restyles mounted viewers live. Overrides: `--dsh-cad-bg`, `--dsh-cad-stroke`, `--dsh-cad-paper` |
 | 🧭 CAD editor interactions | Onshape-style ViewCube (26-zone click-to-orient), hover/click face & edge picking with live measurement (area mm² / length mm), Faces+Edges / Faces / Wireframe render modes, switchable BRep demo parts (bracket / flange / shaft) |
-| 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, all-edge fillet/chamfer, **shell**, **draft**, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation. `cad_loft` sections accept **curves** too: point loops, `{through}` splines or planar `{profile}` chains; `smooth: true` fits a **periodic B-spline** through point loops — one continuous B-spline lateral face instead of planar strips meeting at G0 creases |
+| 🏗️ Parametric modeling | Primitives, profile extrusion, **loft**, **sweep**, **revolve**, booleans, **fillet/chamfer** (all edges, or a selection by 1-based edge index / direction), **shell**, **draft**, **patterns** (linear/circular), transforms; profiles take **curve segments** (arcs/circles exact BRep; B-splines sampled approximation) — exact OCCT BRep, not a mesh approximation. `cad_loft` sections accept **curves** too: point loops, `{through}` splines or planar `{profile}` chains; `smooth: true` fits a **periodic B-spline** through point loops — one continuous B-spline lateral face instead of planar strips meeting at G0 creases |
 | ✏️ Named sketches | Standalone named profiles (Sketch1…) kept in the document (`cad_sketch_new` / `edit` / `list` / `delete`); extrude/revolve/sweep reference them **by name**, and `cad_sketch_edit` rewrites the definition in place + replays the log, rebuilding every dependent feature — the parametric loop. Sketches render as Onshape-style **blue curves + plane frame** in the viewport (refreshing live on edit), listed in a left-side **feature tree** (sketches + features, eye-toggle visibility, click-to-highlight bodies) over the Part tab |
 | 🗂️ Codex-style document tabs | The resident display panel gets a tab strip with a "+" menu: **Part** (Part Studio, the default) / **Assembly** (instance insert/move/remove) / **Drawing** (true hidden-line sheets); tabs are closable and keep their state |
 | 🔩 Joint-driven assemblies | The build123d joint family (rigid/revolute/linear/cylindrical/ball/planar/polar): `cad_assembly_joint` defines, `cad_assembly_connect` pairs-and-solves (parent fixed, child repositioned onto the joint frames), `cad_assembly_drive` drives motion values with cascading re-solve (motion studies), `cad_assembly_explode` for exploded views; the assembly-tree panel gains a JOINTS section (kind/current value/pairing link). Pure main-thread placement algebra — kernel-independent, replays from the op log |
@@ -120,15 +120,16 @@ Set `DEEPSEEK_API_KEY` and you are ready — for example:
 | `cad_extrude_profile` | Extrude a closed XY-plane profile along +Z into a solid — inline points/segments/circle or a named sketch (`sketch`) |
 | `cad_loft` | Loft: skin a solid through successive closed sections (each a [x,y,z,…] loop in its own plane, or a curve/`profile` section); sections may differ in shape and point count; `smooth` fits a periodic B-spline through point loops for a **crease-free** skin; `ruled` for straight sides |
 | `cad_revolve` | Solid of revolution: revolve a closed profile around an axis (profile coords = (radius, height); curve segments supported — rounded rims exact); optional `angle`; accepts a named sketch |
-| `cad_chamfer` | Chamfer: bevel every sharp edge with one equal distance (mm) |
+| `cad_chamfer` | Chamfer: bevel the selected sharp edges with one distance (mm); `edges` = 1-based indices from `cad_edges`, `edgesAlong` = a direction (e.g. `[0,0,1]`), both = intersection; omit both for every edge; optional asymmetric `length2` |
 | `cad_pattern` | Pattern: linear (`delta` spacing) or circular (principal axis + `at` point + sweep angle); creates copy bodies, fuse afterwards for one body |
 | `cad_shell` | Shell: hollow to a wall thickness (inward, outer skin preserved); `open` lists outward normals of the faces to open (empty = sealed). Runs on the occt.ts kernel; the result is a HOSTED body |
 | `cad_draft` | Draft: tilt the walls `angle` degrees about a neutral plane (mold release); `direction` is the pull direction, walls auto-selected by default. Runs on the occt.ts kernel; the result is a HOSTED body |
 | `cad_sweep` | Sweep: pipe a closed 2D profile along a 3D [x,y,z,…] path; the profile is auto-placed on the start plane, so no manual orientation; accepts a named sketch |
 | `cad_boolean` | fuse / cut / common (classic hole punching: plate cut cylinder) |
-| `cad_fillet` | Constant-radius fillet on all sharp edges |
+| `cad_fillet` | Fillet: round the selected sharp edges with one radius (mm); `edges` / `edgesAlong` select a subset, omit both for every edge |
 | `cad_transform` | Translate / Euler rotate / mirror |
 | `cad_volume` | Exact BRep volume (mm³) |
+| `cad_edges` | List a body's edges (and/or faces) with the 1-based indices + directions `cad_fillet` / `cad_chamfer` take |
 | `cad_drawing` | Engineering drawing: front/top/left + isometric views, dashed hidden lines, frame, title block, overall dimensions, standard scale, A4/A3 |
 | `cad_assembly_insert` | Insert a body into the assembly as a placed instance (`at` position, `rotate` orientation) |
 | `cad_assembly_move` | Set an instance's absolute placement |
@@ -289,8 +290,10 @@ OCCT worker → exact bounds).
 
 - DWG (closed-source) is unsupported; DXF bulge arcs are approximated by chords;
   glTF/3MF viewing is not implemented (the structure is reserved)
-- `cad_fillet` is all-edge constant-radius (per-edge selection is unstable under
-  embind); chamfer is not implemented
+- `cad_fillet` / `cad_chamfer` default to every edge; `edges` (1-based, from
+  `cad_edges`) and `edgesAlong` narrow the selection. Where two selected edges
+  meet, OCCT computes one matching corner blend — a radius the corner cannot
+  absorb fails with the "exceeds the adjacent faces" hint
 - Sketch extrusion supports polygon profiles only (arc profiles are constructed by
   boolean combinations of cylinders/tori)
 - dsh framework limitation: an already-mounted single slot (the right-side details
