@@ -205,8 +205,49 @@ function steerRightbar(shown: boolean, delayMs: number): void {
  * establishment lands after our subscribe), so it runs non-revealing like
  * the boot itself.
  */
+/** The `sessions` service slice the blank-session reveal reads. */
+interface SessionsListLike {
+  list?: { getSnapshot(): { byId?: Record<string, { blank?: boolean }> } }
+}
+
+/**
+ * Auto-open the CAD tab whenever a session becomes current. The pane system
+ * starts every session with an empty rightbar — without this a fresh install
+ * shows no display area at all and the + menu is the only (undiscoverable)
+ * way in.
+ *
+ * Boot load onto an ESTABLISHED conversation: place the CAD tab, then collapse
+ * the rightbar — the host itself boots the rightbar open (verified live: open
+ * at t=0, before any plugin code), so an active collapse is what keeps the
+ * launch view clean. Boot onto a BLANK session (the untitled draft a fresh
+ * page lands on): reveal — the new-session case is exactly when the display
+ * area is the session's default view, and clicking 新建会话 while already on
+ * that draft produces NO transition event at all, so the reveal must come
+ * from the arrival itself. Session transitions (new session, switch to
+ * another conversation): place the tab and ensure the rightbar is expanded.
+ * While a session STAYS current, a deliberate close stays closed; the next
+ * transition re-opens.
+ *
+ * Session source: the host `uiSession` service's `adapter.current` store
+ * (the same signal sidebar-right watches). `openTab` throws until the host
+ * mounted the switched-to session's surface, so each transition runs a
+ * bounded retry chain, and a newer transition supersedes the older chain.
+ * An event is classified by the key it left, never by arrival order: the
+ * boot establishment (`undefined → key`) is silent unless the arriving
+ * session is blank, and any session→session event reveals — a page whose
+ * selection restored before this watcher subscribed misclassifies nothing.
+ */
 function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
   const generation = { current: 0 }
+  /** Whether the arriving session is the blank draft (the "new session" itself). */
+  const arrivingBlank = (key: unknown): boolean => {
+    if (key === undefined) return false
+    try {
+      const sessions = ctx.get?.('sessions') as SessionsListLike | undefined
+      const row = sessions?.list?.getSnapshot?.().byId?.[String(key)]
+      return row?.blank === true
+    } catch { return false }
+  }
   const attempt = (reveal: boolean, index: number): void => {
     if (index === 0) generation.current += 1
     const generationAtStart = generation.current
@@ -233,21 +274,41 @@ function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
       setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
     }
   }
-  // Transitions after the boot load reveal; the first subscriber event is
-  // the boot-time session establishment, so it collapses like the boot.
-  let booted = false
-  const onTransition = (): void => {
-    const reveal = booted
-    booted = true
-    attempt(reveal, 0)
-  }
-  const uiSession = ctx.get?.('uiSession') as UiSessionLike | undefined
-  const current = uiSession?.adapter?.current
-  if (current != null && typeof current.subscribe === 'function' && typeof current.getSnapshot === 'function') {
+  // One watcher, subscribed as soon as the uiSession service shows up (the
+  // pane registration that gates this watcher already implies it, but the
+  // lookup is retried the same way — an absent service degrades to the boot
+  // attempt alone, exactly like a host without one).
+  const subscribe = (index: number): void => {
+    const uiSession = ctx.get?.('uiSession') as UiSessionLike | undefined
+    const current = uiSession?.adapter?.current
+    if (current == null || typeof current.subscribe !== 'function' || typeof current.getSnapshot !== 'function') {
+      if (index < SERVICE_RETRY_DELAYS_MS.length) {
+        const retry = (): void => { subscribe(index + 1) }
+        try {
+          if (typeof ctx.setTimeout === 'function') ctx.setTimeout(retry, SERVICE_RETRY_DELAYS_MS[index])
+          else setTimeout(retry, SERVICE_RETRY_DELAYS_MS[index])
+        } catch { setTimeout(retry, SERVICE_RETRY_DELAYS_MS[index]) }
+      }
+      return
+    }
+    // Classification state: the key the previous event left. `undefined →
+    // key` is the boot establishment (blank-arrivals reveal); `key → key'`
+    // is a user-visible transition (always reveals); `key → undefined`
+    // leaves the conversation for a global panel and has no surface to open.
+    let previousKey: unknown = current.getSnapshot().key
+    const onTransition = (): void => {
+      const key = current.getSnapshot().key
+      const left = previousKey
+      previousKey = key
+      if (key === undefined) return
+      attempt(left !== undefined || arrivingBlank(key), 0)
+    }
     const unsubscribe = current.subscribe(onTransition)
     ctx.effect?.(() => unsubscribe, 'dsh-cad: session auto-open watcher')
   }
-  // The boot load itself: tab in place, rightbar collapsed.
+  subscribe(0)
+  // The boot load itself: tab in place, rightbar collapsed (an arrival at a
+  // blank session upgrades to a reveal through the establishment event).
   attempt(false, 0)
 }
 
