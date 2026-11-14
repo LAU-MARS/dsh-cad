@@ -28,7 +28,13 @@ export const name = 'dsh-cad'
 export const inject = ['tools']
 
 export interface Config {
-  /** Directory the scene spill store uses; defaults to the workspace root. */
+  /**
+   * Directory for the plugin's persistent state: the scene spill store, the
+   * document file space (`.dsh-cad/docs/`), and the fallback root for
+   * relative tool paths. Defaults to the launch directory — which equals the
+   * workspace root only when the host is launched from the workspace; hosts
+   * started elsewhere (issue #6) should set this explicitly.
+   */
   root?: string
 }
 
@@ -36,8 +42,8 @@ export function apply(ctx: Context, config: Config = {}): void {
   const root = config.root ?? process.cwd()
   const store = new SceneStore(root)
   const binStore = new BinarySceneStore(root)
-  const registry = new DocumentRegistry(process.cwd())
-  const workspaceRoot = process.cwd()
+  const registry = new DocumentRegistry(root)
+  const workspaceRoot = root
 
   // The routes live on the host's shared webServer, which outlives this
   // plugin instance: hosts that hot-reload (the desktop runtime) re-run
