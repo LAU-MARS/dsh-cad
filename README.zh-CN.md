@@ -114,15 +114,16 @@ patch 内容以包根目录的 `cordis.patch.yml` 随包分发，安装器经同
 | `cad_extrude_profile` | XY 平面闭合轮廓沿 +Z 拉伸成实体——内联点列/曲线段/圆，或引用命名草图（`sketch`） |
 | `cad_loft` | 放样：多个闭合截面（[x,y,z…] 点环，或 `{through}` 样条 / 平面 `{profile}` 曲线截面）蒙皮成体，截面形状/点数可不同；`smooth: true` 用周期 B 样条拟合点环，得到单一连续侧面（零折痕）；`ruled` 直纹 |
 | `cad_revolve` | 旋转体：闭合轮廓绕轴回转（profile 坐标 = (半径, 高度)，支持曲线段——圆角轮缘精确），`angle` 角度可选；可引用命名草图 |
-| `cad_chamfer` | 倒角：全锐边等距离斜切（mm） |
+| `cad_chamfer` | 倒角：按 `distance` 斜切选中的锐边；`edges` = `cad_edges` 给出的 1 基索引，`edgesAlong` = 方向（如 `[0,0,1]`），两者同时给取交集；都不给 = 全部锐边；可选不对称 `length2` |
 | `cad_pattern` | 阵列：线性（delta 间距）或圆周（主轴 + at 轴点 + 总角度），生成副本体，可再 fuse 合并 |
 | `cad_shell` | 抽壳：壁厚向内生长、外表面保留；`open` 为开口面的外法向列表（空 = 封闭内腔）。经 occt.ts 内核执行，结果为**托管体** |
 | `cad_draft` | 拔模：壁面绕中性面倾斜 `angle` 度（脱模斜度），`direction` 为拔模方向，默认自动选平行于该方向的壁面。经 occt.ts 内核执行，结果为**托管体** |
 | `cad_sweep` | 扫掠：闭合 2D 轮廓沿 3D 路径（[x,y,z…]）扫出实体；轮廓自动置于路径起点垂面，无需手工定向；可引用命名草图 |
 | `cad_boolean` | fuse / cut / common（经典打孔：plate cut cylinder） |
-| `cad_fillet` | 全锐边等半径圆角 |
+| `cad_fillet` | 圆角：按 `radius` 倒圆选中的锐边；`edges` / `edgesAlong` 选子集，都不给 = 全部锐边 |
 | `cad_transform` | 平移 / 欧拉旋转 / 镜像 |
 | `cad_volume` | 精确 BRep 体积（mm³） |
+| `cad_edges` | 列出体的边（和/或面）及其 1 基索引、方向——`cad_fillet` / `cad_chamfer` 选边用 |
 | `cad_drawing` | 工程图：主/俯/左 + 轴测四视图，隐藏线（虚线）、图框、标题栏、总尺寸、标准比例，A4/A3 |
 | `cad_assembly_insert` | 将零件以实例插入装配体（`at` 定位、`rotate` 定向） |
 | `cad_assembly_move` | 设置实例绝对位置/姿态 |
@@ -262,7 +263,9 @@ STL 导出往返（导出 → 一期解析器读回），以及 DCPRT 文档往�
 ## 已知限制
 
 - DWG（闭源）不支持；DXF bulge 弧以弦线近似；glTF/3MF 查看未实现（结构已预留）
-- `cad_fillet` 为全边等半径（embind 下按边选择不稳定）；chamfer 未实现
+- `cad_fillet` / `cad_chamfer` 默认作用于全部边；`edges`（1 基，来自 `cad_edges`）和
+  `edgesAlong` 可缩小范围。两条选中边相交处由 OCCT 自动生成匹配的角部过渡——
+  角部吃不下的半径会以"超出相邻面"报错
 - 草图拉伸仅支持多边形轮廓（圆弧轮廓用布尔组合圆柱/圆环构造）
 - dsh 框架限制：已挂载的 single 槽（右侧 details 面板本体）不响应后注册组件，
   故常驻显示区以 "3D" 视图页签提供（list 槽，官方组合方式）

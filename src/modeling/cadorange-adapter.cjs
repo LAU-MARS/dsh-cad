@@ -358,20 +358,38 @@ function createCadorangeAdapter(mods) {
     return result
   }
 
-  function filletAll(shape, radius) {
+  /** Edge views for a 1-based index selection; no selection = every edge. */
+  function edgesBySelection(shape, indices) {
+    const items = shape.edges().items
+    if (!Array.isArray(indices) || indices.length === 0) return items
+    const wanted = new Set(indices)
+    const picked = items.filter((e) => wanted.has(e.index))
+    if (picked.length === 0) throw new Error('no edges matched the selection')
+    return picked
+  }
+
+  function filletEdges(shape, radius, indices) {
     try {
-      return C.fillet(shape, shape.edges(), radius)
+      return C.fillet(shape, edgesBySelection(shape, indices), radius)
     } catch (error) {
       throw wrapError('fillet', error instanceof Error && /radius|exceed/i.test(error.message) ? error : new Error('radius may exceed the adjacent faces'))
     }
   }
 
-  function chamferAll(shape, distance) {
+  function chamferEdges(shape, distance, indices, length2) {
     try {
-      return C.chamfer(shape, shape.edges(), distance)
+      return C.chamfer(shape, edgesBySelection(shape, indices), distance, length2)
     } catch (error) {
       throw wrapError('chamfer', error instanceof Error && /distance|exceed/i.test(error.message) ? error : new Error('distance may exceed the adjacent faces'))
     }
+  }
+
+  function filletAll(shape, radius) {
+    return filletEdges(shape, radius, null)
+  }
+
+  function chamferAll(shape, distance) {
+    return chamferEdges(shape, distance, null)
   }
 
   /**
@@ -479,6 +497,7 @@ function createCadorangeAdapter(mods) {
         length: e.length,
         center: e.center,
         origin: e.center,
+        ...(e.direction !== undefined ? { direction: [...e.direction] } : {}),
         ...(e.axis !== undefined ? { axis: [...e.axis] } : {}),
         ...(e.radius !== undefined ? { radius: e.radius } : {}),
       })),
@@ -781,6 +800,8 @@ function createCadorangeAdapter(mods) {
     makeRevolve,
     filletAll,
     chamferAll,
+    filletEdges,
+    chamferEdges,
     shell,
     draft,
     boolean,

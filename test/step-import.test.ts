@@ -5,6 +5,7 @@
  * shared modeling worker.
  */
 import { copyFile, mkdtemp, writeFile } from 'node:fs/promises'
+import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -15,6 +16,8 @@ import { resolveCadorangeDist } from '../src/modeling/cadorange-bridge.cjs'
 /** import_step needs the cadorange backend (structured XCAF read). */
 const cadorangeAvailable = resolveCadorangeDist() !== null
 const SAMPLE = fileURLToPath(new URL('../简单装配体.step', import.meta.url))
+/** The sample STEP is a local asset (not committed); skip when it is absent. */
+const sampleAvailable = existsSync(SAMPLE)
 
 describe('modeling worker: import_step (integration)', () => {
   beforeEach(async () => {
@@ -75,7 +78,7 @@ describe('modeling worker: import_step (integration)', () => {
     }
   })
 
-  it('probes a real-world STEP file (简单装配体.step)', { timeout: 120_000 }, async () => {
+  it.skipIf(!sampleAvailable)('probes a real-world STEP file (简单装配体.step)', { timeout: 120_000 }, async () => {
     if (!cadorangeAvailable) throw new Error('cadorange not resolvable — run npm install first (or check the sibling checkout)')
     const dir = await mkdtemp(path.join(tmpdir(), 'dsh-cad-step-sample-'))
     const asset = path.join(dir, 'sample.step')
