@@ -19,6 +19,7 @@ import type { DocKind } from './viewport.js'
 import { AssemblyTree, useAssemblyTree } from './assembly-tree.js'
 import { FeatureTree, useFeatureTree } from './feature-tree.js'
 import { cadCanvasBackground, useCadTheme } from './theme.js'
+import { refreshSpaceSnapshot } from './cad-space.js'
 
 // ── harness services (structural, defensive) ────────────────────────────────
 
@@ -341,6 +342,9 @@ function DocsMenu({ activeDocId, onClose }: { activeDocId: string | null; onClos
   const [error, setError] = useState<string | null>(null)
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameText, setRenameText] = useState('')
 
   useEffect(() => {
     const onPointerDown = (event: PointerEvent): void => {
@@ -381,62 +385,158 @@ function DocsMenu({ activeDocId, onClose }: { activeDocId: string | null; onClos
       .finally(() => { setBusyId(null) })
   }
 
+  const activateDoc = (id: string, name: string): void => {
+    setBusyId(id)
+    fetch('/dsh-cad/space/activate', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, sessionId: '_default' }),
+    })
+      .then((response) => {
+        if (!response.ok) return response.json().then((payload: { error?: string }) => { throw new Error(payload.error ?? `HTTP ${response.status}`) })
+        void refreshSpaceSnapshot()
+        setPreviewDoc({ docId: id, name, sceneUrl: `/dsh-cad/bin/${id}` })
+        ensureTab('part')
+        onClose()
+      })
+      .catch((cause: unknown) => { setError(cause instanceof Error ? cause.message : String(cause)) })
+      .finally(() => { setBusyId(null) })
+  }
+
+  const renameDoc = (id: string, name: string): void => {
+    setBusyId(id)
+    fetch('/dsh-cad/space/docs/rename', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, name }),
+    })
+      .then((response) => {
+        if (!response.ok) return response.json().then((payload: { error?: string }) => { throw new Error(payload.error ?? `HTTP ${response.status}`) })
+        void refreshSpaceSnapshot()
+        setRenamingId(null)
+        refresh()
+      })
+      .catch((cause: unknown) => { setError(cause instanceof Error ? cause.message : String(cause)) })
+      .finally(() => { setBusyId(null) })
+  }
+
+  const filtered = entries?.filter((doc) => query.trim() === '' || doc.name.toLowerCase().includes(query.trim().toLowerCase()))
+
   return (
     <div ref={ref} style={panelStyles.menu} role="menu" aria-label="文档列表">
-      <div style={panelStyles.docsHeader}>工作区文档</div>
+      <div style={panelStyles.docsHeader}>
+        工作区文档
+        <button
+          type="button"
+          style={panelStyles.docsOpenSpace}
+          onClick={() => {
+            const layout = (window as unknown as { __dshCadSelectSpace?: () => void }).__dshCadSelectSpace
+            if (typeof layout === 'function') layout()
+            onClose()
+          }}
+          title="打开全屏 CAD 空间（文件夹 / 导入 / 导出 / 预览）"
+        >
+          在 CAD 空间中管理 ↗
+        </button>
+      </div>
+      <div style={panelStyles.docsSearchRow}>
+        <input
+          style={panelStyles.docsSearch}
+          value={query}
+          placeholder="搜索文档…"
+          onChange={(event) => setQuery(event.target.value)}
+        />
+      </div>
       {error !== null ? <div style={panelStyles.docsError}>{error}</div> : null}
       {entries === null && error === null ? <div style={panelStyles.docsHintRow}>加载中…</div> : null}
-      {entries !== null && entries.length === 0 ? (
-        <div style={panelStyles.docsHintRow}>还没有建模文档 — 在对话中建模后会出现在这里</div>
+      {filtered !== null && filtered.length === 0 ? (
+        <div style={panelStyles.docsHintRow}>{entries.length === 0 ? '还没有建模文档 — 在对话中建模后会出现在这里' : '没有匹配的文档'}</div>
       ) : null}
-      {entries?.map((doc) => {
+      {filtered?.map((doc) => {
         const isActive = doc.id === activeDocId
         return (
           <div key={doc.id} style={panelStyles.docRow}>
-            <button
-              type="button"
-              role="menuitem"
-              style={panelStyles.docRowMain}
-              onClick={() => {
-                if (doc.sceneUrl !== undefined) {
-                  setPreviewDoc({ docId: doc.id, name: doc.name, sceneUrl: doc.sceneUrl })
-                  ensureTab('part')
-                  onClose()
-                }
-              }}
-              title={doc.sceneUrl === undefined ? '空文档（无场景）' : '点击预览'}
-            >
-              <span style={panelStyles.menuIcon}><DocIcon /></span>
-              <span style={{ ...panelStyles.menuLabel, ...(isActive ? { color: 'var(--dsw-alias-label-primary,#4d6bfe)', fontWeight: 600 } : {}) }}>
-                {doc.name}
-                {isActive ? ' · 当前' : ''}
-              </span>
-              <span style={panelStyles.menuHint}>{doc.bodies} 体 · {relTime(doc.updatedAt)}</span>
-            </button>
-            {confirmingId === doc.id ? (
-              <span style={panelStyles.docConfirm}>
-                <button type="button" style={panelStyles.docConfirmYes} disabled={busyId === doc.id} onClick={() => { deleteDoc(doc.id) }}>
-                  删除
-                </button>
-                <button type="button" style={panelStyles.docConfirmNo} onClick={() => { setConfirmingId(null) }}>
-                  取消
-                </button>
-              </span>
+            {renamingId === doc.id ? (
+              <input
+                style={panelStyles.docRenameInput}
+                value={renameText}
+                autoFocus
+                onChange={(event) => setRenameText(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && renameText.trim() !== '') renameDoc(doc.id, renameText.trim())
+                  if (event.key === 'Escape') setRenamingId(null)
+                }}
+                onBlur={() => { if (renameText.trim() !== '') renameDoc(doc.id, renameText.trim()); else setRenamingId(null) }}
+              />
             ) : (
-              <button
-                type="button"
-                style={panelStyles.docDelete}
-                aria-label={`删除文档 ${doc.name}`}
-                title="删除文档"
-                onClick={() => { setConfirmingId(doc.id) }}
-              >
-                ×
-              </button>
+              <>
+                <button
+                  type="button"
+                  role="menuitem"
+                  style={panelStyles.docRowMain}
+                  onClick={() => {
+                    if (doc.sceneUrl !== undefined) {
+                      setPreviewDoc({ docId: doc.id, name: doc.name, sceneUrl: doc.sceneUrl })
+                      ensureTab('part')
+                      onClose()
+                    }
+                  }}
+                  title={doc.sceneUrl === undefined ? '空文档（无场景）' : '点击预览'}
+                >
+                  <span style={panelStyles.menuIcon}><DocIcon /></span>
+                  <span style={{ ...panelStyles.menuLabel, ...(isActive ? { color: 'var(--dsw-alias-label-primary,#4d6bfe)', fontWeight: 600 } : {}) }}>
+                    {doc.name}
+                    {isActive ? ' · 当前' : ''}
+                  </span>
+                  <span style={panelStyles.menuHint}>{doc.bodies} 体 · {relTime(doc.updatedAt)}</span>
+                </button>
+                {confirmingId === doc.id ? (
+                  <span style={panelStyles.docConfirm}>
+                    <button type="button" style={panelStyles.docConfirmYes} disabled={busyId === doc.id} onClick={() => { deleteDoc(doc.id) }}>
+                      删除
+                    </button>
+                    <button type="button" style={panelStyles.docConfirmNo} onClick={() => { setConfirmingId(null) }}>
+                      取消
+                    </button>
+                  </span>
+                ) : (
+                  <span style={panelStyles.docActions}>
+                    <button
+                      type="button"
+                      style={panelStyles.docAction}
+                      aria-label={`将 ${doc.name} 设为当前会话文档`}
+                      title="设为当前会话文档"
+                      disabled={busyId === doc.id}
+                      onClick={() => { activateDoc(doc.id, doc.name) }}
+                    >
+                      ✓
+                    </button>
+                    <button
+                      type="button"
+                      style={panelStyles.docAction}
+                      aria-label={`重命名 ${doc.name}`}
+                      title="重命名"
+                      onClick={() => { setRenamingId(doc.id); setRenameText(doc.name) }}
+                    >
+                      ✎
+                    </button>
+                    <button
+                      type="button"
+                      style={panelStyles.docAction}
+                      aria-label={`删除文档 ${doc.name}`}
+                      title="删除文档"
+                      onClick={() => { setConfirmingId(doc.id) }}
+                    >
+                      ×
+                    </button>
+                  </span>
+                )}
+              </>
             )}
           </div>
         )
       })}
-      <div style={panelStyles.docsFooter}>点击预览 · 切换建模目标请在对话中说「打开 xx 文档」</div>
+      <div style={panelStyles.docsFooter}>点击预览 · ✓ 设为当前会话文档 · ✎ 重命名</div>
     </div>
   )
 }
@@ -989,6 +1089,65 @@ const panelStyles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid var(--dsw-alias-border-l1, #e2e5ea)',
     marginTop: 3,
   },
+  docsOpenSpace: {
+    marginLeft: 'auto',
+    flex: 'none',
+    border: 'none',
+    borderRadius: 6,
+    background: 'transparent',
+    color: 'var(--dsw-alias-label-secondary, #374151)',
+    fontSize: 11,
+    padding: '2px 6px',
+    cursor: 'pointer',
+  },
+  docsSearchRow: {
+    padding: '2px 9px 6px',
+  },
+  docsSearch: {
+    width: '100%',
+    height: 26,
+    border: '0.5px solid var(--dsw-alias-border-l2, #c4c9d0)',
+    borderRadius: 6,
+    background: 'var(--dsw-alias-bg-base, #fff)',
+    color: 'var(--dsw-alias-label-primary, #1f2937)',
+    font: 'inherit',
+    fontSize: 12,
+    padding: '0 8px',
+    outline: 'none',
+    boxSizing: 'border-box',
+  },
+  docActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 1,
+    flex: 'none',
+  },
+  docAction: {
+    flex: 'none',
+    width: 20,
+    height: 20,
+    border: 'none',
+    borderRadius: 5,
+    background: 'transparent',
+    color: 'var(--dsw-alias-label-tertiary, #9ca3af)',
+    fontSize: 11,
+    lineHeight: '18px',
+    cursor: 'pointer',
+    padding: 0,
+  },
+  docRenameInput: {
+    flex: '1 1 auto',
+    minWidth: 0,
+    height: 24,
+    border: '0.5px solid var(--dsw-alias-state-business-primary, #4d6bfe)',
+    borderRadius: 6,
+    background: 'var(--dsw-alias-bg-base, #fff)',
+    color: 'var(--dsw-alias-label-primary, #1f2937)',
+    font: 'inherit',
+    fontSize: 12,
+    padding: '0 6px',
+    outline: 'none',
+  },
   docRow: {
     display: 'flex',
     alignItems: 'center',
@@ -1034,7 +1193,7 @@ const panelStyles: Record<string, React.CSSProperties> = {
     border: 'none',
     borderRadius: 6,
     background: 'var(--dsw-alias-state-error-primary, #d92d20)',
-    color: '#fff',
+    color: 'var(--dsw-alias-label-primary-foreground, #fff)',
     fontSize: 11,
     padding: '3px 8px',
     cursor: 'pointer',

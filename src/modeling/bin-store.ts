@@ -3,7 +3,7 @@
  * route serves straight from memory; a debounced disk mirror keeps restart
  * replay working without paying a file write on every modeling step.
  */
-import { access, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { access, mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { packBinaryScene } from './bin-format.js'
 import type { BinMeshData } from './bin-format.js'
@@ -65,6 +65,22 @@ export class BinarySceneStore {
       return true
     } catch {
       return false
+    }
+  }
+
+  /** Drop a scene from memory and its debounced disk mirror (registry deletes). */
+  async drop(viewId: string): Promise<void> {
+    if (!/^[0-9a-zA-Z_-]{1,64}$/.test(viewId)) return
+    this.memory.delete(viewId)
+    const timer = this.diskTimers.get(viewId)
+    if (timer !== undefined) {
+      clearTimeout(timer)
+      this.diskTimers.delete(viewId)
+    }
+    try {
+      await unlink(path.join(this.directory, `${viewId}.bin`))
+    } catch {
+      /* already gone */
     }
   }
 

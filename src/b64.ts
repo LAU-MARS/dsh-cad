@@ -12,3 +12,15 @@ export function encodeF32B64(array: Float32Array): string {
 export function encodeU32B64(array: Uint32Array): string {
   return Buffer.from(array.buffer, array.byteOffset, array.byteLength).toString('base64')
 }
+
+/** Decode a base64 Float32Array buffer (host side; mirrors the viewer's decode). */
+export function decodeF32B64(text: string): Float32Array {
+  const view = new Float32Array(Buffer.from(text, 'base64').buffer.slice(0))
+  return view
+}
+
+/** Decode a base64 Uint32Array buffer (host side). */
+export function decodeU32B64(text: string): Uint32Array {
+  const view = new Uint32Array(Buffer.from(text, 'base64').buffer.slice(0))
+  return view
+}

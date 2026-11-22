@@ -52,6 +52,8 @@ export interface OpResult {
   instances?: AssemblyInstance[]
   /** Pattern op: the newly created copy bodies with their meshes. */
   created?: Array<{ bodyId: string; name?: string; mesh?: WorkerMesh }>
+  /** Mesh-only document export: no kernel shape is available. */
+  meshExport?: boolean
   /** Name of the sketch touched by a sketch op. */
   sketch?: string
   /** Flat [x,y,z,…] display polyline of the sketch (sketch_set; occt.ts backend). */
@@ -145,6 +147,17 @@ export type ModelOp =
     }
   | { kind: 'constraints'; model: { entities: unknown[]; constraints: unknown[] } }
   | { kind: 'export_assembly'; format: 'step' | 'stl' }
+  | { kind: 'export_document'; format: 'step' | 'stl' }
+  | {
+      kind: 'import_mesh'
+      /** Sidecar asset path (workspace .dsh-cad/docs/assets/<hash>.<ext>). */
+      path: string
+      format: 'stl' | 'obj' | 'iges' | 'brep'
+      bodyId: string
+      name?: string
+      /** The parsed mesh payload (main-thread conversion, embedded with the op). */
+      mesh?: unknown
+    }
   | { kind: 'sketch_set'; name: string; profile: unknown }
   | { kind: 'sketch_delete'; name: string }
 
@@ -260,6 +273,22 @@ export async function runModelOp(op: ModelOp, timeoutMs = 180_000): Promise<OpRe
   const result = await sharedClient.run(op, timeoutMs)
   if (op.kind === 'reset') resetEpoch += 1
   return result
+}
+
+/**
+ * Simple async mutex serializing multi-op sequences on the shared worker
+ * (document switch/replay, out-of-band export/preview materialization, STEP
+ * import) so concurrent HTTP requests or tool calls never interleave mid-replay.
+ */
+let workerTail: Promise<void> = Promise.resolve()
+
+export function withWorkerLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = workerTail.then(fn, fn)
+  workerTail = run.then(
+    () => {},
+    () => {},
+  )
+  return run
 }
 
 /** Current reset epoch of the shared worker (see above). */

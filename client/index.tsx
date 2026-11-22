@@ -7,11 +7,16 @@
  *   the sidebar-right tab system (dsh ≥0.2.x — the host's docking kit owns
  *   width/collapse/float/fullscreen and remembers the open tab per session).
  *   Hosts without the pane system mount no panel.
+ * - the CAD 空间 (workspace drive) as a host-global left-sidebar panel plus
+ *   its full-screen main page (same two-stage path the host plugins use).
  */
+import React from 'react'
+import type { JSX } from 'react'
 import type { CadCardProps } from './card.js'
 import { CadCallRow } from './card.js'
 import { mountCadPanel } from './pane.js'
 import type { SessionsLike } from './sidepanel.js'
+import { CAD_SPACE_PANEL_ID, CadSpaceGlyph, CadSpacePage, refreshSpaceSnapshot } from './cad-space.js'
 
 export const inject = ['slots']
 
@@ -91,4 +96,37 @@ export function apply(ctx: ClientContext): void {
   // property requires declaring an inject.)
   const sessions = ctx.get?.('sessions') as SessionsLike | undefined
   mountCadPanel(ctx, sessions)
+
+  // The CAD 空间 (workspace drive): a host-global left-sidebar panel entry
+  // (sidebar.panellist, id 'cad-space', order 5 → below 插件 / above 自动化任务)
+  // plus the matching `main` keyed page. Both are optional-service lookups:
+  // hosts without the layout/slots packages (dsh < 0.2.x) simply render no
+  // drive entry, exactly like the rightbar pane above.
+  try {
+    ctx.slots.inject('sidebar.panellist', () =>
+      ctx.slots.register(
+        { name: 'sidebar.panellist', id: CAD_SPACE_PANEL_ID, order: 5, label: () => 'CAD 空间' },
+        function CadSpacePanelIcon(props: { size?: number }): JSX.Element {
+          return <CadSpaceGlyph size={props.size ?? 16} />
+        } as unknown as (props: never) => JSX.Element,
+      ))
+    ctx.slots.inject('main', () =>
+      ctx.slots.register(
+        { name: 'main', key: CAD_SPACE_PANEL_ID },
+        function CadSpaceMain(props: Record<string, unknown>): JSX.Element {
+          return (
+            <CadSpacePage
+              ctx={{ get: ctx.get }}
+              useSessions={typeof props.useSessions === 'function'
+                ? props.useSessions as CadSpacePageProps['useSessions']
+                : undefined}
+            />
+          )
+        } as unknown as (props: never) => JSX.Element,
+      ))
+    // Pre-warm the snapshot poll so opening the drive is instant.
+    void refreshSpaceSnapshot()
+  } catch {
+    /* a host without these slots renders no drive entry */
+  }
 }

@@ -12,6 +12,7 @@ import { SceneStore } from './store.js'
 import { BinarySceneStore } from './modeling/bin-store.js'
 import { DocumentRegistry } from './modeling/registry.js'
 import { registerSceneRoute, registerBinRoute, registerDemoRoute, registerDocsRoute, registerDocsDeleteRoute, registerAssemblyRoute, registerFeatureTreeRoute } from './routes.js'
+import { registerSpaceRoutes } from './space-routes.js'
 import type { SceneRoute } from './routes.js'
 import { createCadViewTool } from './tools/cad-view.js'
 import { createCadInfoTool } from './tools/cad-info.js'
@@ -63,6 +64,16 @@ export function apply(ctx: Context, config: Config = {}): void {
       pending.push(registerDocsDeleteRoute(server, registry))
       pending.push(registerAssemblyRoute(server, registry))
       pending.push(registerFeatureTreeRoute(server, registry))
+      pending.push(registerSpaceRoutes({
+        server,
+        registry,
+        sceneStore: store,
+        binStore,
+        workspaceRoot,
+        ensureSceneRoute,
+        binStoreHas: (viewId) => binStore.has(viewId),
+        sceneStoreHas: (viewId) => store.has(viewId),
+      }))
     } catch (error) {
       // Roll back the partial batch, or the next attempt trips the duplicate
       // guard on the routes that did register.

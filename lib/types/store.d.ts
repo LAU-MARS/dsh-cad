@@ -13,6 +13,8 @@ export declare class SceneStore {
     get(viewId: string): Promise<CadScene | null>;
     /** Best-effort removal (unused for now; kept for completeness of the API). */
     delete(viewId: string): Promise<void>;
+    /** Existence check without loading the scene into memory. */
+    has(viewId: string): Promise<boolean>;
     /** ETag for a scene payload (cache helper for the route handler). */
     etag(scene: CadScene): string;
 }

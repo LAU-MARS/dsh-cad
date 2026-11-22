@@ -4,7 +4,7 @@
  * still fetch their geometry after a process restart.
  */
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, readFile, writeFile, unlink } from 'node:fs/promises'
+import { mkdir, readFile, writeFile, unlink, access } from 'node:fs/promises'
 import path from 'node:path'
 import type { CadScene } from './types.js'
 
@@ -63,6 +63,18 @@ export class SceneStore {
       await unlink(path.join(this.directory, `${viewId}.json`))
     } catch {
       // Already gone.
+    }
+  }
+
+  /** Existence check without loading the scene into memory. */
+  async has(viewId: string): Promise<boolean> {
+    if (!/^[0-9a-f-]{36}$/i.test(viewId)) return false
+    if (this.memory.has(viewId)) return true
+    try {
+      await access(path.join(this.directory, `${viewId}.json`))
+      return true
+    } catch {
+      return false
     }
   }
 

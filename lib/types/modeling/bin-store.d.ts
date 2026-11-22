@@ -16,6 +16,8 @@ export declare class BinarySceneStore {
     get(viewId: string): Promise<Entry | null>;
     /** Existence check without loading the buffer into memory. */
     has(viewId: string): Promise<boolean>;
+    /** Drop a scene from memory and its debounced disk mirror (registry deletes). */
+    drop(viewId: string): Promise<void>;
     /** Debounced disk mirror: one write after modeling quiesces, not per step. */
     private scheduleDiskMirror;
 }

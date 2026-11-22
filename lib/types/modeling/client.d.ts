@@ -44,6 +44,8 @@ export interface OpResult {
         name?: string;
         mesh?: WorkerMesh;
     }>;
+    /** Mesh-only document export: no kernel shape is available. */
+    meshExport?: boolean;
     /** Name of the sketch touched by a sketch op. */
     sketch?: string;
     /** Flat [x,y,z,…] display polyline of the sketch (sketch_set; occt.ts backend). */
@@ -257,6 +259,18 @@ export type ModelOp = {
     kind: 'export_assembly';
     format: 'step' | 'stl';
 } | {
+    kind: 'export_document';
+    format: 'step' | 'stl';
+} | {
+    kind: 'import_mesh';
+    /** Sidecar asset path (workspace .dsh-cad/docs/assets/<hash>.<ext>). */
+    path: string;
+    format: 'stl' | 'obj' | 'iges' | 'brep';
+    bodyId: string;
+    name?: string;
+    /** The parsed mesh payload (main-thread conversion, embedded with the op). */
+    mesh?: unknown;
+} | {
     kind: 'sketch_set';
     name: string;
     profile: unknown;
@@ -273,6 +287,7 @@ export interface ModelClient {
 export declare function createModelClient(): ModelClient;
 /** Run one modeling operation on the shared session worker. */
 export declare function runModelOp(op: ModelOp, timeoutMs?: number): Promise<OpResult>;
+export declare function withWorkerLock<T>(fn: () => Promise<T>): Promise<T>;
 /** Current reset epoch of the shared worker (see above). */
 export declare function workerResetEpoch(): number;
 /** Test/Dev helper: hard worker file path (used by the vitest suite). */
