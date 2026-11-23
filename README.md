@@ -72,6 +72,28 @@ dsh plugin --profile web add dsh-cad
 
 The installer applies the bundled `cordis.patch.yml` (declared in the `dsh.bundle` manifest) automatically, so there is nothing to configure by hand.
 
+### Panel auto-open (`autoOpen`)
+
+The resident CAD panel only opens itself where a conversation actually used
+CAD (`tool-use`, the default), so switching to a CAD-unrelated session no
+longer forces the right sidebar open (issue #14). A deliberate close also
+stays closed until the next switch. Override it with the plugin option
+`autoOpen`:
+
+| `autoOpen` | Behaviour |
+| --- | --- |
+| `tool-use` *(default)* | Open on a session switch only when that session already has a CAD result; also open when the first CAD result appears in the current session. |
+| `session` | Legacy: place the tab and expand the rightbar on every session switch. |
+| `never` | Never open automatically — only the "+ → CAD 视图" tab-menu entry. |
+
+Set it where the profile configures this plugin (the client half reads it from
+`GET /dsh-cad/ui-config`):
+
+```yaml
+dsh-cad:
+  autoOpen: never   # or 'session' / 'tool-use'
+```
+
 ### Version requirements
 
 - **Node.js** and **dsh CLI** (`@deepseek-ai/dsh`): minimum versions live in

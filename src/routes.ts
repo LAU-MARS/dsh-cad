@@ -25,6 +25,7 @@ export const DOCS_ROUTE_PATH = '/dsh-cad/docs'
 export const DOCS_DELETE_ROUTE_PATH = '/dsh-cad/docs/delete'
 export const ASSEMBLY_ROUTE_PATH = '/dsh-cad/asm'
 export const FEATURE_TREE_ROUTE_PATH = '/dsh-cad/tree'
+export const UI_CONFIG_ROUTE_PATH = '/dsh-cad/ui-config'
 
 /** The built-in demo examples (packaged as lib/demo-<part>.brep). */
 export const DEMO_PARTS = ['bracket', 'flange', 'shaft'] as const
@@ -310,6 +311,49 @@ export function registerAssemblyRoute(
         res.writeHead(500, { 'content-type': 'application/json' })
         res.end(JSON.stringify({ error: cause instanceof Error ? cause.message : String(cause) }))
       }
+    },
+  })
+}
+
+/** Auto-open policy for the resident CAD pane (issue #14). */
+export type AutoOpenMode = 'session' | 'tool-use' | 'never'
+
+/** All accepted auto-open modes, in documentation order. */
+export const AUTO_OPEN_MODES: readonly AutoOpenMode[] = ['session', 'tool-use', 'never']
+
+/** Default auto-open policy; invalid or absent config falls back to this. */
+export const DEFAULT_AUTO_OPEN: AutoOpenMode = 'tool-use'
+
+/** Coerce an arbitrary plugin config value to a known mode. */
+export function normalizeAutoOpen(value: unknown): AutoOpenMode {
+  return value === 'session' || value === 'tool-use' || value === 'never' ? value : DEFAULT_AUTO_OPEN
+}
+
+/**
+ * Register the panel config route: GET /dsh-cad/ui-config. The client half has
+ * no config of its own, so the host exposes the resolved `autoOpen` policy
+ * here (same origin as the panel's other `/dsh-cad/*` fetches).
+ */
+export function registerUiConfigRoute(
+  server: { register: (route: SceneRoute) => () => void },
+  getConfig: () => { autoOpen: AutoOpenMode },
+): () => void {
+  return server.register({
+    kind: 'exact',
+    path: UI_CONFIG_ROUTE_PATH,
+    handler: (req: IncomingMessage, res: ServerResponse) => {
+      if (req.method !== 'GET') {
+        res.writeHead(404, { 'content-type': 'application/json' })
+        res.end(JSON.stringify({ error: 'not found' }))
+        return
+      }
+      const body = Buffer.from(JSON.stringify({ autoOpen: getConfig().autoOpen }))
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-length': body.length,
+        'cache-control': 'no-store',
+      })
+      res.end(body)
     },
   })
 }

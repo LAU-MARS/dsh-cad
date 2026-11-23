@@ -14,5 +14,13 @@ export declare const inject: string[];
 export interface Config {
     /** Directory the scene spill store uses; defaults to the workspace root. */
     root?: string;
+    /**
+     * When the resident CAD pane opens itself (issue #14):
+     * - `session`  — legacy: expand on every session switch (intrusive);
+     * - `tool-use` — default: only where the conversation actually used CAD;
+     * - `never`    — only the "+ → CAD 视图" menu entry.
+     * The client half reads this through `GET /dsh-cad/ui-config`.
+     */
+    autoOpen?: 'session' | 'tool-use' | 'never';
 }
 export declare function apply(ctx: Context, config?: Config): void;

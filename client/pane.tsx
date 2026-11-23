@@ -11,6 +11,12 @@
  * `sidebar.right.pane.tab.title` chip seats. The `guide` entry puts CAD in
  * the new-tab menu.
  *
+ * Auto-open is configurable through the host plugin `autoOpen` option (read
+ * from the same-origin `/dsh-cad/ui-config` route — see ./auto-open.ts). The
+ * default `tool-use` only opens the panel where CAD is actually used, so a
+ * session switch no longer forces the rightbar open in CAD-unrelated
+ * conversations (issue #14).
+ *
  * Timing: this plugin declares only `slots`, so its client half activates
  * BEFORE the sidebar-right package provides `sidebarRightTabs` (itself
  * waiting on the frame's layout services) — a single apply-time lookup loses
@@ -24,6 +30,8 @@ import React from 'react'
 import type { JSX } from 'react'
 import { makeCadPaneBody } from './sidepanel.js'
 import type { SessionsLike } from './sidepanel.js'
+import { DEFAULT_AUTO_OPEN, normalizeAutoOpen, resolveAutoOpen, snapshotHasCad } from './auto-open.js'
+import type { AutoOpenMode } from './auto-open.js'
 
 /** The tab type's registry identity AND the keyed seat key (the id is what the seat dispatches on). */
 const CAD_TAB_ID = 'dsh-cad'
@@ -183,19 +191,65 @@ function steerRightbar(shown: boolean, delayMs: number): void {
   setTimeout(press, delayMs)
 }
 
+/** Run `fn` after `ms` through the host timer when available (falls back to the platform one). */
+function after(ctx: PaneClientContext, ms: number, fn: () => void): void {
+  try {
+    if (typeof ctx.setTimeout === 'function') ctx.setTimeout(fn, ms)
+    else setTimeout(fn, ms)
+  } catch {
+    setTimeout(fn, ms)
+  }
+}
+
 /**
- * Auto-open the CAD tab whenever a session becomes current. The pane system
- * starts every session with an empty rightbar — without this a fresh install
- * shows no display area at all and the + menu is the only (undiscoverable)
- * way in.
+ * Read the host's `autoOpen` option from our same-origin config route. The
+ * client half has no config of its own; the host route is the cross-runtime
+ * channel (same origin as the existing `/dsh-cad/docs` fetch). Any failure or
+ * timeout falls back to the default so the panel still works without it.
+ */
+function readAutoOpenMode(): Promise<AutoOpenMode> {
+  try {
+    const doFetch = (globalThis as { fetch?: typeof fetch }).fetch
+    if (typeof doFetch !== 'function') return Promise.resolve(DEFAULT_AUTO_OPEN)
+    const request = doFetch('/dsh-cad/ui-config', { headers: { accept: 'application/json' } })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((config: { autoOpen?: unknown } | null) => normalizeAutoOpen(config?.autoOpen))
+      .catch(() => DEFAULT_AUTO_OPEN)
+    const timeout = new Promise<AutoOpenMode>((resolve) => { setTimeout(() => resolve(DEFAULT_AUTO_OPEN), 1200) })
+    return Promise.race([request, timeout])
+  } catch {
+    return Promise.resolve(DEFAULT_AUTO_OPEN)
+  }
+}
+
+/** Does the CURRENT session already carry a CAD result? (Drives `tool-use` on switch.) */
+function currentSessionHasCad(ctx: PaneClientContext, sessions: SessionsLike | undefined): boolean {
+  if (sessions === undefined) return false
+  const uiSession = ctx.get?.('uiSession') as UiSessionLike | undefined
+  const key = uiSession?.adapter?.current?.getSnapshot()?.key
+  if (key === undefined || key === null) return false
+  try {
+    const face = sessions.binding?.(String(key))?.session
+    return face !== undefined && snapshotHasCad(face.getSnapshot())
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Auto-open the CAD tab according to `mode` (see ./auto-open.ts).
  *
- * Boot load: place the CAD tab, then collapse the rightbar — the host itself
- * boots the rightbar open (verified live: open at t=0, before any plugin
- * code), so an active collapse is what keeps the launch view clean. Session
- * transitions (new session, switch to another conversation): place the tab
- * and ensure the rightbar is expanded, so the display area is just there.
+ * `session` keeps the legacy behaviour: the pane system starts every session
+ * with an empty rightbar, so boot places the tab then collapses (the host
+ * boots the rightbar open); every later session transition places the tab and
+ * expands. `tool-use` (default) opens only where CAD is used: a transition
+ * expands only when the target session already has a CAD result, and the
+ * first CAD result in the current session expands it without a switch.
+ * `never` leaves only the "+ → CAD 视图" entry.
+ *
  * While a session STAYS current, a deliberate close stays closed; the next
- * transition re-opens.
+ * transition re-evaluates (and, for `tool-use`, only re-opens where CAD
+ * exists).
  *
  * Session source: the host `uiSession` service's `adapter.current` store
  * (the same signal sidebar-right watches). `openTab` throws until the host
@@ -205,11 +259,19 @@ function steerRightbar(shown: boolean, delayMs: number): void {
  * establishment lands after our subscribe), so it runs non-revealing like
  * the boot itself.
  */
-function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
+function watchSessionsAndAutoOpen(
+  ctx: PaneClientContext,
+  mode: AutoOpenMode,
+  sessions: SessionsLike | undefined,
+): void {
+  if (mode === 'never') return
   const generation = { current: 0 }
+  const revealed = { current: false }
   const attempt = (reveal: boolean, index: number): void => {
     if (index === 0) generation.current += 1
     const generationAtStart = generation.current
+    const action = resolveAutoOpen(mode, reveal, currentSessionHasCad(ctx, sessions))
+    if (action === 'skip') return
     const controller = ctx.get?.('sidebarRight') as PaneControllerLike | undefined
     if (controller != null && typeof controller.openTab === 'function') {
       try {
@@ -217,7 +279,8 @@ function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
         // Boot: wait out the host's post-placement presentation reactions
         // before collapsing; transitions: nudge the bar open only if it is
         // currently collapsed (the expand button is absent when shown).
-        steerRightbar(reveal, reveal ? 150 : 900)
+        steerRightbar(action === 'reveal', action === 'reveal' ? 150 : 900)
+        if (action === 'reveal') revealed.current = true
         return
       } catch { /* session surface not mounted yet — retry */ }
     }
@@ -226,12 +289,7 @@ function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
       if (generationAtStart !== generation.current) return
       attempt(reveal, index + 1)
     }
-    try {
-      if (typeof ctx.setTimeout === 'function') ctx.setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
-      else setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
-    } catch {
-      setTimeout(retry, AUTO_OPEN_DELAYS_MS[index])
-    }
+    after(ctx, AUTO_OPEN_DELAYS_MS[index] as number, retry)
   }
   // Transitions after the boot load reveal; the first subscriber event is
   // the boot-time session establishment, so it collapses like the boot.
@@ -239,13 +297,56 @@ function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
   const onTransition = (): void => {
     const reveal = booted
     booted = true
+    revealed.current = false
     attempt(reveal, 0)
+    // `tool-use`: the switched-to session's feed may bind a beat after the
+    // switch, so re-check shortly after rather than missing an existing model.
+    if (mode === 'tool-use' && reveal) {
+      const recheck = (): void => {
+        if (revealed.current) return
+        if (currentSessionHasCad(ctx, sessions)) {
+          revealed.current = true
+          attempt(true, 0)
+        }
+      }
+      after(ctx, 300, recheck)
+      after(ctx, 900, recheck)
+    }
   }
   const uiSession = ctx.get?.('uiSession') as UiSessionLike | undefined
   const current = uiSession?.adapter?.current
   if (current != null && typeof current.subscribe === 'function' && typeof current.getSnapshot === 'function') {
     const unsubscribe = current.subscribe(onTransition)
     ctx.effect?.(() => unsubscribe, 'dsh-cad: session auto-open watcher')
+  }
+  // `tool-use`: also reveal the first time a CAD result appears in the current
+  // session (a fresh session that starts modeling gets its panel without a
+  // switch). Once revealed for a session, a deliberate close stays closed.
+  if (mode === 'tool-use' && sessions !== undefined) {
+    let faceUnsub: (() => void) | undefined
+    const bindCurrent = (): void => {
+      try { faceUnsub?.() } catch { /* noop */ }
+      faceUnsub = undefined
+      try {
+        const key = current?.getSnapshot?.()?.key
+        if (key === undefined || key === null) return
+        const face = sessions.binding?.(String(key))?.session
+        if (face === undefined) return
+        faceUnsub = face.subscribe(() => {
+          if (revealed.current) return
+          if (snapshotHasCad(face.getSnapshot())) {
+            revealed.current = true
+            attempt(true, 0)
+          }
+        })
+      } catch { /* fall back to switch-driven evidence */ }
+    }
+    const stopBind = current?.subscribe?.(bindCurrent)
+    bindCurrent()
+    ctx.effect?.(() => {
+      try { stopBind?.() } catch { /* noop */ }
+      try { faceUnsub?.() } catch { /* noop */ }
+    }, 'dsh-cad: cad-appearance watcher')
   }
   // The boot load itself: tab in place, rightbar collapsed.
   attempt(false, 0)
@@ -259,23 +360,19 @@ function watchSessionsAndAutoOpen(ctx: PaneClientContext): void {
  * surface there.
  */
 export function mountCadPanel(ctx: PaneClientContext, sessions: SessionsLike | undefined): void {
+  const modePromise = readAutoOpenMode()
+  const start = (mode: AutoOpenMode): void => { watchSessionsAndAutoOpen(ctx, mode, sessions) }
   if (tryRegisterCadPane(ctx, sessions)) {
-    watchSessionsAndAutoOpen(ctx)
+    void modePromise.then(start)
     return
   }
   const attempt = (index: number): void => {
     if (tryRegisterCadPane(ctx, sessions)) {
-      watchSessionsAndAutoOpen(ctx)
+      void modePromise.then(start)
       return
     }
     if (index >= SERVICE_RETRY_DELAYS_MS.length) return
-    const retry = (): void => { attempt(index + 1) }
-    try {
-      if (typeof ctx.setTimeout === 'function') ctx.setTimeout(retry, SERVICE_RETRY_DELAYS_MS[index])
-      else setTimeout(retry, SERVICE_RETRY_DELAYS_MS[index])
-    } catch {
-      setTimeout(retry, SERVICE_RETRY_DELAYS_MS[index])
-    }
+    after(ctx, SERVICE_RETRY_DELAYS_MS[index] as number, () => { attempt(index + 1) })
   }
   attempt(0)
 }
