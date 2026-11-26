@@ -9,6 +9,7 @@ export declare const DOCS_ROUTE_PATH = "/dsh-cad/docs";
 export declare const DOCS_DELETE_ROUTE_PATH = "/dsh-cad/docs/delete";
 export declare const ASSEMBLY_ROUTE_PATH = "/dsh-cad/asm";
 export declare const FEATURE_TREE_ROUTE_PATH = "/dsh-cad/tree";
+export declare const UI_CONFIG_ROUTE_PATH = "/dsh-cad/ui-config";
 /** The built-in demo examples (packaged as lib/demo-<part>.brep). */
 export declare const DEMO_PARTS: readonly ["bracket", "flange", "shaft"];
 export type DemoPart = (typeof DEMO_PARTS)[number];
@@ -46,6 +47,24 @@ export declare function registerDocsDeleteRoute(server: {
 export declare function registerAssemblyRoute(server: {
     register: (route: SceneRoute) => () => void;
 }, registry: DocumentRegistry): () => void;
+/** Auto-open policy for the resident CAD pane (issue #14). */
+export type AutoOpenMode = 'session' | 'tool-use' | 'never';
+/** All accepted auto-open modes, in documentation order. */
+export declare const AUTO_OPEN_MODES: readonly AutoOpenMode[];
+/** Default auto-open policy; invalid or absent config falls back to this. */
+export declare const DEFAULT_AUTO_OPEN: AutoOpenMode;
+/** Coerce an arbitrary plugin config value to a known mode. */
+export declare function normalizeAutoOpen(value: unknown): AutoOpenMode;
+/**
+ * Register the panel config route: GET /dsh-cad/ui-config. The client half has
+ * no config of its own, so the host exposes the resolved `autoOpen` policy
+ * here (same origin as the panel's other `/dsh-cad/*` fetches).
+ */
+export declare function registerUiConfigRoute(server: {
+    register: (route: SceneRoute) => () => void;
+}, getConfig: () => {
+    autoOpen: AutoOpenMode;
+}): () => void;
 export type { SceneRoute };
 /**
  * Register the feature-tree route: GET /dsh-cad/tree/<docId> returns the Part

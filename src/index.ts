@@ -11,7 +11,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import { SceneStore } from './store.js'
 import { BinarySceneStore } from './modeling/bin-store.js'
 import { DocumentRegistry } from './modeling/registry.js'
-import { registerSceneRoute, registerBinRoute, registerDemoRoute, registerDocsRoute, registerDocsDeleteRoute, registerAssemblyRoute, registerFeatureTreeRoute } from './routes.js'
+import { registerSceneRoute, registerBinRoute, registerDemoRoute, registerDocsRoute, registerDocsDeleteRoute, registerAssemblyRoute, registerFeatureTreeRoute, registerUiConfigRoute, normalizeAutoOpen } from './routes.js'
 import { registerSpaceRoutes } from './space-routes.js'
 import type { SceneRoute } from './routes.js'
 import { createCadViewTool } from './tools/cad-view.js'
@@ -31,10 +31,19 @@ export const inject = ['tools']
 export interface Config {
   /** Directory the scene spill store uses; defaults to the workspace root. */
   root?: string
+  /**
+   * When the resident CAD pane opens itself (issue #14):
+   * - `session`  — legacy: expand on every session switch (intrusive);
+   * - `tool-use` — default: only where the conversation actually used CAD;
+   * - `never`    — only the "+ → CAD 视图" menu entry.
+   * The client half reads this through `GET /dsh-cad/ui-config`.
+   */
+  autoOpen?: 'session' | 'tool-use' | 'never'
 }
 
 export function apply(ctx: Context, config: Config = {}): void {
   const root = config.root ?? process.cwd()
+  const autoOpen = normalizeAutoOpen(config.autoOpen)
   const store = new SceneStore(root)
   const binStore = new BinarySceneStore(root)
   const registry = new DocumentRegistry(process.cwd())
@@ -64,6 +73,7 @@ export function apply(ctx: Context, config: Config = {}): void {
       pending.push(registerDocsDeleteRoute(server, registry))
       pending.push(registerAssemblyRoute(server, registry))
       pending.push(registerFeatureTreeRoute(server, registry))
+      pending.push(registerUiConfigRoute(server, () => ({ autoOpen })))
       pending.push(registerSpaceRoutes({
         server,
         registry,

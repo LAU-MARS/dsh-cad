@@ -69,6 +69,25 @@ dsh plugin --profile web add dsh-cad
 
 安装器会通过 `dsh.bundle` 清单自动应用包内自带的 `cordis.patch.yml`，无需手工改任何配置。
 
+### 面板自动展开（`autoOpen`）
+
+常驻 CAD 面板现在只在实际用过 CAD 的会话里自动展开（`tool-use`，默认值），
+切到与 CAD 无关的会话不再强制拉开右侧栏（issue #14）；手动收起后也会保持收起，
+直到下一次切换会话。可用插件选项 `autoOpen` 覆盖：
+
+| `autoOpen` | 行为 |
+| --- | --- |
+| `tool-use`（默认） | 仅当目标会话已有 CAD 结果时，切换时才展开；当前会话首次产生 CAD 结果时也会展开。 |
+| `session` | 旧行为：每次切换会话都放置页签并展开右栏。 |
+| `never` | 永不自动展开，只保留「+ → CAD 视图」菜单入口。 |
+
+在配置该插件的 profile 里设置（客户端通过 `GET /dsh-cad/ui-config` 读取）：
+
+```yaml
+dsh-cad:
+  autoOpen: never   # 或 'session' / 'tool-use'
+```
+
 ### 版本要求
 
 - **Node.js** 与 **dsh CLI**（`@deepseek-ai/dsh`）的最低版本以顶部徽章和
